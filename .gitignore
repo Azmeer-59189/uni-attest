@@ -1,0 +1,51 @@
+# ─── Dependencies ───────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ─── Environment variables — NEVER COMMIT ────────
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+blockchain/.env
+
+# ─── Uploads — user files & certificates ─────────
+server/uploads/
+
+# ─── Blockchain build artifacts ──────────────────
+blockchain/artifacts/
+blockchain/cache/
+blockchain/node_modules/
+
+# ─── Frontend build output ───────────────────────
+client/dist/
+client/.vite/
+
+# ─── Logs ────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ─── OS generated files ──────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ─── Editor files ────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── Testing ─────────────────────────────────────
+coverage/
