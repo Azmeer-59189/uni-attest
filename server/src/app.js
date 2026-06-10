@@ -10,10 +10,12 @@ const authRoutes = require('./routes/auth');
 const studentRoutes = require('./routes/student');
 const adminRoutes = require('./routes/admin');
 const verifyRoutes = require('./routes/verify');
+const ocrRoutes = require('./routes/ocr');          // ← ADD THIS
 const errorHandler = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
 
 const app = express();
+
 // Initialize blockchain service on startup
 const blockchainService = require('./services/blockchain');
 blockchainService.initialize().then(initialized => {
@@ -23,6 +25,7 @@ blockchainService.initialize().then(initialized => {
     require('./utils/logger').warn('Blockchain service disabled — check CONTRACT_ADDRESS and PRIVATE_KEY in .env');
   }
 });
+
 const PORT = process.env.PORT || 5000;
 
 // Security middleware
@@ -44,9 +47,8 @@ app.use(limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Serve uploaded files and certificates statically
-// app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));  
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Request logging
 app.use((req, res, next) => {
@@ -59,6 +61,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/verify', verifyRoutes);
+app.use('/api/ocr', ocrRoutes);                    // ← ADD THIS
 
 // Health check
 app.get('/health', (req, res) => {
