@@ -17,6 +17,7 @@ router.post('/applications', [
 ], studentController.createApplication);
 router.get('/applications/:id', studentController.getApplication);
 router.post('/applications/:id/documents', upload.array('documents', 5), studentController.uploadDocuments);
+router.patch('/applications/:id/withdraw', authenticate, studentController.withdrawApplication)
 router.get('/degrees', studentController.getDegrees);
 
 module.exports = router;

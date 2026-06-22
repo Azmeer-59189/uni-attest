@@ -19,16 +19,16 @@ exports.createApplication = async (req, res, next) => {
   try {
     const { programName, department, graduationYear, cgpa } = req.body;
 
-    const existingApp = await Application.findOne({
-      student: req.user._id,
-      status: { $in: ['pending', 'under_review', 'approved'] }
-    });
+const existingApp = await Application.findOne({
+  student: req.user._id,
+  status: { $in: ['pending', 'under_review', 'approved'] }
+});
 
-    if (existingApp) {
-      return res.status(409).json({
-        error: 'You already have an active application. Please wait for it to be processed.'
-      });
-    }
+if (existingApp) {
+  return res.status(409).json({
+    error: 'You already have an active application. Please wait for it to be processed.'
+  });
+}
 
     const application = new Application({
       student: req.user._id,
@@ -121,3 +121,19 @@ exports.getDegrees = async (req, res, next) => {
     next(error);
   }
 };
+
+exports.withdrawApplication = async (req, res, next) => {
+  try {
+    const app = await Application.findOne({
+      _id: req.params.id,
+      student: req.user._id,
+      status: 'pending'
+    })
+    if (!app) return res.status(404).json({ error: 'Application not found or cannot be withdrawn' })
+    app.status = 'withdrawn'
+    await app.save()
+    res.json({ message: 'Application withdrawn successfully' })
+  } catch (err) {
+    next(err)
+  }
+}

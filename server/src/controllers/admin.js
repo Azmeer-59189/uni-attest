@@ -184,21 +184,23 @@ exports.issueDegree = async (req, res, next) => {
       issuedAt
     };
 
+    // Generate the canonical hash used by local verification and the blockchain contract.
     const degreeHash = hashService.generateDegreeHash(degreeData);
 
-    // Try blockchain — fails gracefully if not configured
+    // Store the canonical hash on-chain and keep the transaction hash as proof metadata.
     let blockchainTx = null;
+
     try {
       if (blockchainService.initialized) {
         const result = await blockchainService.issueDegree(degreeHash);
         blockchainTx = result.transactionHash;
-        logger.info(`Degree stored on blockchain: ${blockchainTx}`);
+        logger.info(`Degree hash stored on blockchain: ${degreeHash} (${blockchainTx})`);
       }
     } catch (err) {
       logger.warn('Blockchain storage failed, continuing without it:', err.message);
     }
 
-    // Generate PDF certificate
+    // Generate the certificate using the canonical verification hash.
     let pdfUrl = null;
     try {
       await pdfService.generateCertificate(
@@ -222,7 +224,6 @@ exports.issueDegree = async (req, res, next) => {
     });
     await degree.save();
 
-    // Link degree back onto the application
     application.status = 'issued';
     application.degree = degree._id;
     await application.save();

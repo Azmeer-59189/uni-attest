@@ -44,4 +44,6 @@ const degreeSchema = new mongoose.Schema({
   timestamps: true
 });
 
+degreeSchema.index({ application: 1 }, { unique: true });
+
 module.exports = mongoose.model('Degree', degreeSchema);

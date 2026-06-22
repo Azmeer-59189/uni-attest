@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const path = require('path');
 require('dotenv').config();
 
+const faceRoutes = require('./routes/face');
 const authRoutes = require('./routes/auth');
 const studentRoutes = require('./routes/student');
 const adminRoutes = require('./routes/admin');
@@ -27,6 +28,7 @@ blockchainService.initialize().then(initialized => {
 });
 
 const PORT = process.env.PORT || 5000;
+
 
 // Security middleware
 app.use(helmet());
@@ -61,7 +63,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/verify', verifyRoutes);
-app.use('/api/ocr', ocrRoutes);                    // ← ADD THIS
+app.use('/api/ocr', ocrRoutes);
+app.use('/api/face', faceRoutes);               // ← ADD THIS
 
 // Health check
 app.get('/health', (req, res) => {

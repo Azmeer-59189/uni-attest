@@ -1,75 +1,87 @@
 const Degree = require('../models/Degree');
-const hashService = require('../services/hash');
 const blockchainService = require('../services/blockchain');
-const logger = require('../utils/logger');
 
 exports.verifyByHash = async (req, res, next) => {
   try {
-    const { hash } = req.params;
+    const hash = (req.params.hash || '').trim();
+    const alternateHash = hash.startsWith('0x') ? hash.slice(2) : `0x${hash}`;
 
-    if (!hash || hash.length !== 64) {
-      return res.status(400).json({
-        verified: false,
-        error: 'Invalid hash format. Expected 64 character hex string.'
-      });
-    }
-
-    const degree = await Degree.findOne({ hash })
-      .populate('student', 'fullName studentId')
-      .populate('application', 'programName department graduationYear cgpa');
+    const degree = await Degree.findOne({
+      $or: [
+        { hash },
+        { hash: alternateHash },
+        { blockchainTx: hash },
+        { blockchainTx: alternateHash },
+      ]
+    })
+      .populate('student', 'fullName studentId department')
+      .populate('application', 'programName department graduationYear cgpa')
+      .populate('issuedBy', 'fullName');
 
     if (!degree) {
       return res.status(404).json({
         verified: false,
-        error: 'Degree not found.'
+        error: 'No degree found with this hash. Please check and try again.'
       });
     }
 
-    degree.verificationCount += 1;
+    degree.verificationCount = (degree.verificationCount || 0) + 1;
     degree.lastVerifiedAt = new Date();
     await degree.save();
 
-    let blockchainVerification = null;
-    try {
-      if (blockchainService.initialized && degree.blockchainTx) {
-        blockchainVerification = await blockchainService.verifyDegree(hash);
-      }
-    } catch (err) {
-      logger.warn('Blockchain verification failed:', err.message);
-    }
-
-    const degreeData = {
-      studentName: degree.student.fullName,
-      studentId: degree.student.studentId,
-      program: degree.application.programName,
-      department: degree.application.department,
-      graduationYear: degree.application.graduationYear,
-      cgpa: degree.application.cgpa,
-      university: process.env.UNIVERSITY_NAME || 'University',
-      issuedAt: degree.createdAt
+    let blockchainVerification = {
+      checked: false,
+      verified: false,
+      error: null
     };
 
-    const computedHash = hashService.generateDegreeHash(degreeData);
-    const hashValid = computedHash === hash;
+    if (blockchainService.initialized && degree.hash) {
+      try {
+        const chainResult = await blockchainService.verifyDegree(degree.hash);
+        blockchainVerification = {
+          checked: true,
+          verified: Boolean(chainResult.verified),
+          timestamp: chainResult.timestamp,
+          issuer: chainResult.issuer,
+          universityName: chainResult.universityName
+        };
+      } catch (err) {
+        blockchainVerification = {
+          checked: true,
+          verified: false,
+          error: err.message
+        };
+      }
+    }
+
+    const polygonScanUrl = degree.blockchainTx
+      ? `https://amoy.polygonscan.com/tx/${degree.blockchainTx}`
+      : null;
 
     res.json({
       verified: true,
-      hashValid,
       degree: {
-        id: degree._id,
         hash: degree.hash,
-        studentName: degree.student.fullName,
-        studentId: degree.student.studentId,
-        program: degree.application.programName,
-        department: degree.application.department,
-        graduationYear: degree.application.graduationYear,
-        cgpa: degree.application.cgpa,
-        issuedAt: degree.createdAt,
         blockchainTx: degree.blockchainTx,
-        blockchainNetwork: degree.blockchainNetwork
-      },
-      blockchainVerification,
-      verificationCount: degree.verificationCount
+        blockchainVerification,
+        polygonScanUrl,
+        studentName: degree.student?.fullName,
+        studentId: degree.student?.studentId,
+        student: {
+          fullName: degree.student?.fullName,
+          studentId: degree.student?.studentId,
+          department: degree.student?.department,
+        },
+        program: degree.application?.programName,
+        department: degree.application?.department,
+        graduationYear: degree.application?.graduationYear,
+        cgpa: degree.application?.cgpa,
+        university: process.env.UNIVERSITY_NAME || 'University',
+        issuedAt: degree.createdAt,
+        issuedBy: degree.issuedBy?.fullName,
+        verificationCount: degree.verificationCount,
+        pdfUrl: degree.pdfUrl,
+      }
     });
   } catch (error) {
     next(error);

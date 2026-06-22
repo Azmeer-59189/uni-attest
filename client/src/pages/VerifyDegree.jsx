@@ -12,7 +12,10 @@ const VerifyDegree = () => {
 
   const handleVerify = async (e) => {
     e.preventDefault()
-    if (!hash || hash.length !== 64) {
+    const trimmedHash = hash.trim()
+    const isValidHash = /^[a-fA-F0-9]{64}$/.test(trimmedHash) || /^0x[a-fA-F0-9]{64}$/.test(trimmedHash)
+
+    if (!isValidHash) {
       setError('Please enter a valid 64-character hash.')
       return
     }
@@ -22,7 +25,7 @@ const VerifyDegree = () => {
     setResult(null)
 
     try {
-      const response = await axios.get(`/api/verify/${hash}`)
+      const response = await axios.get(`/api/verify/${trimmedHash}`)
       setResult(response.data)
     } catch (err) {
       setError(err.response?.data?.error || 'Verification failed.')
@@ -47,7 +50,7 @@ const VerifyDegree = () => {
             className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-navy font-mono text-sm"
             value={hash}
             onChange={(e) => setHash(e.target.value)}
-            maxLength={64}
+            maxLength={66}
           />
           <button type="submit" disabled={loading}
             className="bg-navy text-white px-6 py-2 rounded-lg hover:bg-navy-light disabled:opacity-50 flex items-center space-x-2">
@@ -96,6 +99,27 @@ const VerifyDegree = () => {
             <div className="mt-4 pt-4 border-t">
               <p className="text-sm text-gray-600">Blockchain Transaction</p>
               <p className="font-mono text-xs break-all text-navy">{result.degree.blockchainTx || 'Not stored on blockchain'}</p>
+              {result.degree.polygonScanUrl && (
+                <a
+                  href={result.degree.polygonScanUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  View on Amoy Polygonscan
+                </a>
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t">
+              <p className="text-sm text-gray-600">Blockchain Verification</p>
+              <p className="text-sm font-medium">
+                {result.degree.blockchainVerification?.checked
+                  ? result.degree.blockchainVerification.verified
+                    ? 'Verified on Amoy'
+                    : 'Not found on Amoy'
+                  : 'Not checked'}
+              </p>
             </div>
 
             <div className="mt-4 pt-4 border-t">

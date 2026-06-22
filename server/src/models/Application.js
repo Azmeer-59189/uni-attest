@@ -27,11 +27,11 @@ const applicationSchema = new mongoose.Schema({
     min: 0,
     max: 4
   },
-  status: {
-    type: String,
-    enum: ['pending', 'under_review', 'approved', 'rejected', 'issued'],
-    default: 'pending'
-  },
+status: {
+  type: String,
+  enum: ['pending', 'under_review', 'approved', 'rejected', 'issued', 'withdrawn'],
+  default: 'pending'
+},
   reviewedAt: {
     type: Date
   },
