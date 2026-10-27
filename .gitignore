@@ -49,3 +49,6 @@ desktop.ini
 
 # ─── Testing ─────────────────────────────────────
 coverage/
+__pycache__/
+*.pyc
+server/test-artifacts/

@@ -13,7 +13,7 @@ const authenticate = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.userId);
 
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || (decoded.tokenVersion ?? 0) !== user.tokenVersion) {
       return res.status(401).json({ error: 'User not found or inactive.' });
     }
 

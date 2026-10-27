@@ -1,10 +1,12 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Camera, Upload, CheckCircle, XCircle, RefreshCw, Shield } from 'lucide-react'
 
 const FaceVerification = ({ api, onVerified }) => {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
+  const mounted = useRef(true)
+  const requestRef = useRef(null)
 
   const [idPhoto, setIdPhoto] = useState(null)
   const [idPreview, setIdPreview] = useState(null)
@@ -15,10 +17,29 @@ const FaceVerification = ({ api, onVerified }) => {
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      streamRef.current?.getTracks().forEach(track => track.stop())
+      requestRef.current?.abort()
+    }
+  }, [])
+  useEffect(() => () => { if (idPreview) URL.revokeObjectURL(idPreview) }, [idPreview])
+  useEffect(() => {
+    if (cameraOn && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
+    }
+  }, [cameraOn])
+
   // Handle ID photo upload
   const handleIdUpload = (e) => {
     const file = e.target.files[0]
     if (!file) return
+    if (file.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Choose a JPG, PNG, or WEBP image of 10MB or less.'); return
+    }
     setIdPhoto(file)
     setIdPreview(URL.createObjectURL(file))
     setResult(null)
@@ -31,6 +52,7 @@ const FaceVerification = ({ api, onVerified }) => {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: 'user' }
       })
+      if (!mounted.current) { stream.getTracks().forEach(track => track.stop()); return }
       streamRef.current = stream
       if (videoRef.current) videoRef.current.srcObject = stream
       setCameraOn(true)
@@ -54,10 +76,12 @@ const FaceVerification = ({ api, onVerified }) => {
     if (!videoRef.current || !canvasRef.current) return
     const canvas = canvasRef.current
     const video = videoRef.current
+    if (video.readyState < 2 || !video.videoWidth) { setError('Camera is still loading. Please try again.'); return }
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     canvas.getContext('2d').drawImage(video, 0, 0)
     canvas.toBlob((blob) => {
+      if (!blob || !mounted.current) return
       const file = new File([blob], 'selfie.jpg', { type: 'image/jpeg' })
       setSelfie(file)
       setSelfiePreview(canvas.toDataURL('image/jpeg'))
@@ -86,6 +110,7 @@ const FaceVerification = ({ api, onVerified }) => {
     setResult(null)
 
     try {
+      requestRef.current = new AbortController()
       const fd = new FormData()
       fd.append('id_photo', idPhoto)
       fd.append('selfie', selfie)
@@ -93,14 +118,11 @@ const FaceVerification = ({ api, onVerified }) => {
       const { data } = await api.post('/face/verify', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 90000,
+        signal: requestRef.current.signal,
       })
 
       setResult(data)
 
-      if (data.match) {
-        // Wait 2 seconds to show success then move on
-        setTimeout(() => onVerified(data.photoUrl), 2000)
-      }
     } catch (err) {
       const msg = err.response?.data?.error || 'Verification failed. Please try again.'
       setError(msg)
@@ -115,9 +137,9 @@ const FaceVerification = ({ api, onVerified }) => {
       <div className="flex items-center gap-3 p-4 bg-navy/5 rounded-xl border border-navy/10">
         <Shield className="h-5 w-5 text-navy flex-shrink-0" />
         <div>
-          <p className="text-sm font-medium text-navy">Identity Verification Required</p>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Upload your CNIC or passport photo, then take a selfie. Our AI will verify they match.
+          <p className="text-sm font-medium text-navy">Optional photo comparison</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Compare your ID photo with a selfie. You can skip this check and submit supporting documents for review.
           </p>
         </div>
       </div>
@@ -133,7 +155,8 @@ const FaceVerification = ({ api, onVerified }) => {
           }`}>
             <input
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={loading}
               className="hidden"
               onChange={handleIdUpload}
             />
@@ -148,7 +171,7 @@ const FaceVerification = ({ api, onVerified }) => {
                 </div>
               </div>
             ) : (
-              <div className="h-48 flex flex-col items-center justify-center gap-2 text-gray-400">
+              <div className="h-48 flex flex-col items-center justify-center gap-2 text-gray-500">
                 <Upload className="h-8 w-8" />
                 <p className="text-sm font-medium">Upload CNIC / Passport</p>
                 <p className="text-xs">JPG, PNG · Max 10MB</p>
@@ -204,7 +227,7 @@ const FaceVerification = ({ api, onVerified }) => {
                 >
                   Open Camera
                 </button>
-                <p className="text-xs text-gray-400">Make sure your face is clearly visible</p>
+                <p className="text-xs text-gray-500">Make sure your face is clearly visible</p>
               </div>
             )}
           </div>
@@ -246,7 +269,7 @@ const FaceVerification = ({ api, onVerified }) => {
             </p>
             <p className="text-xs mt-0.5 opacity-75">
               {result.match
-                ? `Confidence: ${result.confidence}% — Proceeding to next step…`
+                ? `Similarity score: ${result.confidence}% — Ready to continue…`
                 : 'Please retake your selfie or upload a clearer ID photo and try again.'
               }
             </p>
@@ -255,6 +278,7 @@ const FaceVerification = ({ api, onVerified }) => {
       )}
 
       {/* Verify button */}
+      {result?.match && <button onClick={() => onVerified(result.photoUrl)} className="w-full bg-green-700 text-white rounded-lg py-3">Continue to documents</button>}
       {!result?.match && (
         <button
           onClick={handleVerify}

@@ -9,7 +9,7 @@ class HashService {
       program: (degreeData.program || degreeData.programName || '').toLowerCase().trim(),
       department: (degreeData.department || '').toLowerCase().trim(),
       graduationYear: degreeData.graduationYear || degreeData.graduation_year,
-      cgpa: degreeData.cgpa ? parseFloat(degreeData.cgpa).toFixed(2) : null,
+      cgpa: degreeData.cgpa !== undefined && degreeData.cgpa !== null && degreeData.cgpa !== '' ? parseFloat(degreeData.cgpa).toFixed(2) : null,
       university: degreeData.university || process.env.UNIVERSITY_NAME || 'University',
       issuedAt: degreeData.issuedAt ? new Date(degreeData.issuedAt).toISOString() : new Date().toISOString()
     };
@@ -21,7 +21,6 @@ class HashService {
     });
 
     const dataString = JSON.stringify(canonicalData, Object.keys(canonicalData).sort());
-    logger.info(`Generating hash for data: ${dataString}`);
 
     const hash = crypto.createHash('sha256').update(dataString).digest('hex');
     logger.info(`Generated hash: ${hash}`);

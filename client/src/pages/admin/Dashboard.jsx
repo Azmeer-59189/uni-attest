@@ -1,428 +1,110 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { ArrowRight, FileText, RefreshCw, Search, Users } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import {
-  FileText, Clock, CheckCircle, Award, XCircle,
-  Eye, ThumbsUp, ThumbsDown, ChevronDown, ChevronUp,
-  Search, RefreshCw, AlertCircle, Users
-} from 'lucide-react'
+import { PageHeader } from '../../components/UI'
+import { StatusBadge, statusLabels, formatDate } from '../../components/ApplicationRecord'
 
-const STATUS_CONFIG = {
-  pending:      { label: 'Pending',      cls: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
-  under_review: { label: 'Under Review', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
-  approved:     { label: 'Approved',     cls: 'bg-green-50 text-green-700 border-green-200' },
-  issued:       { label: 'Issued',       cls: 'bg-purple-50 text-purple-700 border-purple-200' },
-  rejected:     { label: 'Rejected',     cls: 'bg-red-50 text-red-700 border-red-200' },
-}
+const views = { active: 'Needs attention', history: 'Completed', all: 'All records' }
+const activeStatuses = ['pending', 'under_review', 'approved', 'issuing']
+const closedStatuses = ['issued', 'rejected', 'withdrawn']
 
-const AdminDashboard = () => {
-  const [stats, setStats] = useState({ total: 0, pending: 0, underReview: 0, approved: 0, issued: 0, rejected: 0 })
-  const [applications, setApplications] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState('all')
-  const [search, setSearch] = useState('')
-  const [expandedId, setExpandedId] = useState(null)
-  const [actionLoading, setActionLoading] = useState(null)
-  const [modal, setModal] = useState(null) // { type: 'reject'|'approve'|'issue', appId }
-  const [comment, setComment] = useState('')
-  const [toast, setToast] = useState(null)
+export default function AdminDashboard() {
   const { user, api } = useAuth()
+  const location = useLocation()
+  const [params, setParams] = useSearchParams()
+  const view = Object.hasOwn(views, params.get('view')) ? params.get('view') : 'active'
+  const statuses = view === 'active' ? activeStatuses : view === 'history' ? closedStatuses : [...activeStatuses, ...closedStatuses]
+  const status = statuses.includes(params.get('status')) ? params.get('status') : ''
+  const search = (params.get('search') || '').slice(0, 100)
+  const page = Math.max(1, Number.parseInt(params.get('page'), 10) || 1)
+  const limit = [10, 20, 50].includes(Number(params.get('limit'))) ? Number(params.get('limit')) : 10
+  const [stats, setStats] = useState({})
+  const [applications, setApplications] = useState([])
+  const [pagination, setPagination] = useState({ total: 0, pages: 0 })
+  const [loading, setLoading] = useState(true)
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState('')
+  const [revision, setRevision] = useState(0)
+  const sequence = useRef(0)
+  const change = (values) => setParams(previous => {
+    const next = new URLSearchParams(previous)
+    for (const [key, value] of Object.entries(values)) value ? next.set(key, String(value)) : next.delete(key)
+    return next
+  }, { replace: true })
 
-  useEffect(() => { fetchDashboard() }, [])
+  useEffect(() => {
+    const request = ++sequence.current
+    const controller = new AbortController()
+    setLoading(true); setError('')
+    const timer = setTimeout(async () => {
+      try {
+        const [dashboard, records] = await Promise.all([
+          api.get('/admin/dashboard', { signal: controller.signal }),
+          api.get('/admin/applications', { params: { view, status: status || undefined, search, page, limit }, signal: controller.signal })
+        ])
+        if (request !== sequence.current) return
+        setStats(dashboard.data.stats)
+        setApplications(records.data.applications)
+        setPagination(records.data.pagination)
+        setLoaded(true)
+        const last = Math.max(1, records.data.pagination.pages)
+        if (page > last) setParams(previous => { const next = new URLSearchParams(previous); next.set('page', last); return next }, { replace: true })
+      } catch (err) {
+        if (!controller.signal.aborted) setError('Could not load applications. Please retry.')
+      } finally {
+        if (request === sequence.current) setLoading(false)
+      }
+    }, 250)
+    return () => { clearTimeout(timer); controller.abort(); sequence.current += 1 }
+  }, [api, view, status, search, page, limit, revision, setParams])
 
-  const fetchDashboard = async () => {
-    setLoading(true)
-    try {
-      const [dashRes, appsRes] = await Promise.all([
-        api.get('/admin/dashboard'),
-        api.get('/admin/applications')
-      ])
-      setStats(dashRes.data.stats)
-      setApplications(appsRes.data.applications)
-    } catch (error) {
-      console.error('Failed to fetch:', error)
-      showToast('Failed to load data. Is the server running?', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const activeCount = (stats.pending || 0) + (stats.underReview || 0) + (stats.approved || 0) + (stats.issuing || 0)
+  const completedCount = (stats.issued || 0) + (stats.rejected || 0) + (stats.withdrawn || 0)
+  const counts = { active: activeCount, history: completedCount, all: stats.total || 0 }
+  const from = pagination.total ? (page - 1) * limit + 1 : 0
+  const refresh = () => setRevision(value => value + 1)
 
-  const showToast = (msg, type = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
-
-  const handleStartReview = async (appId) => {
-    setActionLoading(appId + '_review')
-    try {
-      await api.patch(`/admin/applications/${appId}/review`)
-      await fetchDashboard()
-      showToast('Application moved to Under Review.')
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Action failed.', 'error')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const handleApprove = async () => {
-    if (!modal) return
-    setActionLoading(modal.appId + '_approve')
-    try {
-      await api.patch(`/admin/applications/${modal.appId}/approve`, {
-        comments: comment || 'Application approved.'
-      })
-      await fetchDashboard()
-      showToast('Application approved successfully.')
-      setModal(null)
-      setComment('')
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Action failed.', 'error')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const handleReject = async () => {
-    if (!modal || !comment.trim()) return
-    setActionLoading(modal.appId + '_reject')
-    try {
-      await api.patch(`/admin/applications/${modal.appId}/reject`, {
-        reason: comment
-      })
-      await fetchDashboard()
-      showToast('Application rejected.')
-      setModal(null)
-      setComment('')
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Action failed.', 'error')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const handleIssueDegree = async (appId) => {
-    setActionLoading(appId + '_issue')
-    try {
-      const res = await api.post(`/admin/applications/${appId}/issue`)
-      await fetchDashboard()
-      showToast('Degree issued and hash stored successfully!')
-      setExpandedId(appId) // keep expanded so they can see the hash
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to issue degree.', 'error')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const filteredApps = applications.filter(app => {
-    const matchesFilter = filter === 'all' || app.status === filter
-    const matchesSearch = !search ||
-      app.student?.fullName?.toLowerCase().includes(search.toLowerCase()) ||
-      app.student?.studentId?.toLowerCase().includes(search.toLowerCase()) ||
-      app.programName?.toLowerCase().includes(search.toLowerCase())
-    return matchesFilter && matchesSearch
-  })
-
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-navy"></div>
+  return <div className="staff-register space-y-6 max-w-6xl mx-auto">
+    <div className="staff-masthead">
+      <p className="staff-office">UNIVERSITY SERVICES <span aria-hidden="true">/</span> ACADEMIC RECORDS</p>
+      <PageHeader eyebrow="Degree attestation" title="Application inbox." description="A clear queue for your next review. Open a record to see its documents, history, and actions." actions={<>
+        {user?.role === 'super_admin' && <Link to="/admin/manage-admins" className="button-secondary"><Users className="h-4 w-4" />Manage admins</Link>}
+        <button disabled={loading} onClick={refresh} className="button-secondary"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
+      </>} />
     </div>
-  )
-
-  return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 transition-all ${
-          toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-navy text-white border-l-4 border-gold'
-        }`}>
-          {toast.type === 'error' ? <AlertCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
-          {toast.msg}
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-serif font-medium text-navy">Admin Dashboard</h1>
-          <p className="text-gray-400 text-sm mt-1">Welcome, {user?.fullName}
-            {user?.role === 'super_admin' && (
-              <span className="ml-2 text-xs bg-gold/10 text-yellow-700 border border-gold/20 px-2 py-0.5 rounded-full">Super Admin</span>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {user?.role === 'super_admin' && (
-            <Link to="/admin/manage-admins"
-              className="flex items-center gap-2 text-sm text-navy border border-navy/20 bg-navy/5 px-4 py-2 rounded-lg hover:bg-navy/10 transition-colors font-medium">
-              <Users className="h-3.5 w-3.5" /> Manage Admins
-            </Link>
-          )}
-          <button onClick={fetchDashboard} className="flex items-center gap-2 text-sm text-gray-500 hover:text-navy border border-gray-200 px-4 py-2 rounded-lg hover:border-navy transition-colors">
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
-          </button>
-        </div>
+    <section className="inbox-summary" aria-label="Application totals">
+      {[["Waiting for review", stats.pending], ['In review', stats.underReview], ['Ready to issue', (stats.approved || 0) + (stats.issuing || 0)], ['Certificates issued', stats.issued]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{loaded ? value : '—'}</strong></div>)}
+    </section>
+    <section className="inbox-panel" aria-label="Application register">
+      <div className="inbox-views" role="group" aria-label="Application views">
+        {Object.entries(views).map(([key, label]) => <button key={key} aria-pressed={view === key} onClick={() => change({ view: key, status: '', page: '' })}>{label}<span>{loaded ? counts[key] : '—'}</span></button>)}
       </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-5 gap-3">
-        {[
-          { label: 'Total',       val: stats.total,      color: 'text-navy',        bg: 'bg-white' },
-          { label: 'Pending',     val: stats.pending,    color: 'text-yellow-600',  bg: 'bg-white' },
-          { label: 'In Review',   val: stats.underReview,color: 'text-blue-600',    bg: 'bg-white' },
-          { label: 'Approved',    val: stats.approved,   color: 'text-green-600',   bg: 'bg-white' },
-          { label: 'Issued',      val: stats.issued,     color: 'text-purple-600',  bg: 'bg-white' },
-        ].map(({ label, val, color, bg }) => (
-          <div key={label} className={`${bg} rounded-xl border border-gray-100 p-4`}>
-            <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">{label}</p>
-            <p className={`text-3xl font-medium ${color}`}>{val}</p>
-          </div>
-        ))}
+      <div className="inbox-toolbar">
+        <label className="relative min-w-0 flex-1"><span className="sr-only">Search applications</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-500" /><input type="search" className="inbox-input w-full pl-10" placeholder="Name, student ID, program, or department" value={search} maxLength={100} onChange={event => change({ search: event.target.value, page: '' })} /></label>
+        <label className="flex items-center gap-2 text-xs text-slate-600">Status<select className="inbox-input" value={status} onChange={event => change({ status: event.target.value, page: '' })}><option value="">All statuses</option>{statuses.map(value => <option key={value} value={value}>{statusLabels[value]}</option>)}</select></label>
       </div>
-
-      {/* Filters + Search */}
-      <div className="flex gap-3 flex-wrap items-center">
-        <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
-          <input
-            type="text" placeholder="Search by name, ID, or program…"
-            className="w-full h-10 pl-9 pr-4 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-navy"
-            value={search} onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {['all', 'pending', 'under_review', 'approved', 'issued', 'rejected'].map(f => (
-            <button key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                filter === f ? 'bg-navy text-white border-navy' : 'bg-white text-gray-500 border-gray-200 hover:border-navy hover:text-navy'
-              }`}>
-              {f === 'all' ? 'All' : f.replace('_', ' ')}
-            </button>
-          ))}
-        </div>
+      <div className="flex flex-wrap justify-between gap-2 px-4 sm:px-5 pb-4 text-xs text-slate-500"><p>{view === 'active' ? 'Oldest submissions first' : 'Newest records first'} · {loaded ? `${pagination.total} matching records` : 'Loading records…'}</p>{(search || status) && <button className="text-navy underline" onClick={() => change({ search: '', status: '', page: '' })}>Clear filters</button>}</div>
+      {error && <div role="alert" className="m-4 p-4 rounded-lg bg-red-50 text-sm text-red-700">{error}<button className="ml-3 underline" onClick={refresh}>Retry</button></div>}
+      <div aria-busy={loading} className={`inbox-results ${loading ? 'opacity-60' : ''}`}>
+        <table className="inbox-table">
+          <caption className="sr-only">{views[view]} applications</caption>
+          <thead><tr><th scope="col">Student</th><th scope="col">Application</th><th scope="col">Submitted</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Open record</span></th></tr></thead>
+          <tbody>{applications.map(application => <tr key={application._id}>
+            <td><span className="block font-semibold text-navy break-words">{application.student?.fullName || 'Student unavailable'}</span><span className="text-xs text-slate-500">{application.student?.studentId || '—'}</span></td>
+            <td><span className="block font-medium break-words">{application.programName}</span><span className="text-xs text-slate-500 break-words">{application.department} · {application.graduationYear}</span></td>
+            <td className="inbox-date"><time dateTime={application.submittedAt || application.createdAt}>{formatDate(application.submittedAt || application.createdAt)}</time></td>
+            <td><StatusBadge status={application.status} /></td>
+            <td><Link to={`/admin/applications/${application._id}`} state={{ returnTo: location.pathname + location.search }} className="inbox-open" aria-label={`View application for ${application.student?.fullName || application.programName}`}>View<span className="sr-only"> application</span><ArrowRight className="h-4 w-4" /></Link></td>
+          </tr>)}</tbody>
+        </table>
+        {!applications.length && !error && <div className="py-14 px-5 text-center"><FileText className="h-8 w-8 mx-auto mb-3 text-slate-400" /><p className="font-medium text-navy">{loading ? 'Loading applications…' : search || status ? 'No matching applications' : view === 'active' ? 'The queue is clear' : 'No records here yet'}</p><p className="mt-1 text-sm text-slate-500">{!loading && (search || status ? 'Try another search or clear your filters.' : view === 'active' ? 'New submissions will appear here. Earlier decisions are in Completed.' : 'Applications will appear here as they move through review.')}</p></div>}
       </div>
-
-      {/* Applications list */}
-      <div className="space-y-3">
-        {filteredApps.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-100 p-12 text-center">
-            <FileText className="h-10 w-10 text-gray-200 mx-auto mb-3" />
-            <p className="text-gray-400 text-sm">No applications found.</p>
-          </div>
-        ) : filteredApps.map(app => {
-          const cfg = STATUS_CONFIG[app.status] || STATUS_CONFIG.pending
-          const isExpanded = expandedId === app._id
-
-          return (
-            <div key={app._id} className={`bg-white rounded-xl border transition-colors ${isExpanded ? 'border-navy' : 'border-gray-100'}`}>
-
-              {/* Row */}
-              <div className="flex items-center gap-4 p-5 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : app._id)}>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-1">
-                    <p className="font-medium text-navy text-sm">{app.student?.fullName || 'Unknown'}</p>
-                    <span className="text-gray-300 text-xs">·</span>
-                    <p className="text-gray-400 text-xs">{app.student?.studentId}</p>
-                  </div>
-                  <p className="text-gray-500 text-xs">{app.programName} — {app.department} · {app.graduationYear}</p>
-                  <p className="text-gray-300 text-xs mt-0.5">Submitted {new Date(app.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-                </div>
-                <span className={`text-xs font-medium px-3 py-1 rounded-full border ${cfg.cls}`}>{cfg.label}</span>
-                {isExpanded ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
-              </div>
-
-              {/* Expanded detail */}
-              {isExpanded && (
-                <div className="border-t border-gray-100 p-5 space-y-4">
-
-                  {/* Details grid */}
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      ['Full Name', app.student?.fullName],
-                      ['Student ID', app.student?.studentId],
-                      ['Email', app.student?.email],
-                      ['Program', app.programName],
-                      ['Department', app.department],
-                      ['Graduation Year', app.graduationYear],
-                      ['CGPA', app.cgpa || '—'],
-                      ['Documents', app.documents?.length ? `${app.documents.length} uploaded` : 'None'],
-                      ['Applied', new Date(app.createdAt).toLocaleDateString()],
-                    ].map(([label, value]) => (
-                      <div key={label} className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">{label}</p>
-                        <p className="text-sm font-medium text-navy truncate">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Admin comments / rejection reason */}
-                  {app.adminComments && (
-                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-                      <p className="text-xs font-medium text-blue-600 mb-1">Admin Comment</p>
-                      <p className="text-sm text-blue-800">{app.adminComments}</p>
-                    </div>
-                  )}
-                  {app.rejectionReason && (
-                    <div className="bg-red-50 border border-red-100 rounded-lg p-3">
-                      <p className="text-xs font-medium text-red-600 mb-1">Rejection Reason</p>
-                      <p className="text-sm text-red-800">{app.rejectionReason}</p>
-                    </div>
-                  )}
-
-                  {/* Issued degree hash + PDF */}
-                  {app.status === 'issued' && app.degree && (
-                    <div className="bg-navy rounded-xl p-4 flex items-center gap-4">
-                      <Award className="h-6 w-6 text-gold flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm font-medium mb-0.5">Degree issued</p>
-                        <p className="text-gray-400 text-xs font-mono truncate">
-                          {app.degree?.hash || 'Hash not available'}
-                        </p>
-                        {app.degree?.blockchainTx && (
-                          <p className="text-gray-500 text-xs font-mono truncate mt-0.5">
-                            TX: {app.degree.blockchainTx}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-2 flex-shrink-0">
-                        <button
-                          onClick={() => { navigator.clipboard.writeText(app.degree.hash); showToast('Hash copied!') }}
-                          className="text-xs bg-white/10 hover:bg-white/20 text-gold px-3 py-1.5 rounded-lg transition-colors">
-                          Copy hash
-                        </button>
-                        {app.degree?.pdfUrl && (
-                          <a href={`http://localhost:5000${app.degree.pdfUrl}`} target="_blank" rel="noreferrer"
-                            className="text-xs bg-white/10 hover:bg-white/20 text-gold px-3 py-1.5 rounded-lg transition-colors text-center">
-                            ↓ Certificate PDF
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
-                  <div className="flex gap-2 pt-1">
-                    {app.status === 'pending' && (
-                      <button
-                        onClick={() => handleStartReview(app._id)}
-                        disabled={actionLoading === app._id + '_review'}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                      >
-                        <Eye className="h-4 w-4" />
-                        {actionLoading === app._id + '_review' ? 'Processing…' : 'Start Review'}
-                      </button>
-                    )}
-
-                    {app.status === 'under_review' && (
-                      <>
-                        <button
-                          onClick={() => { setModal({ type: 'approve', appId: app._id }); setComment('') }}
-                          className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          <ThumbsUp className="h-4 w-4" /> Approve
-                        </button>
-                        <button
-                          onClick={() => { setModal({ type: 'reject', appId: app._id }); setComment('') }}
-                          className="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          <ThumbsDown className="h-4 w-4" /> Reject
-                        </button>
-                      </>
-                    )}
-
-                    {app.status === 'approved' && (
-                      <button
-                        onClick={() => handleIssueDegree(app._id)}
-                        disabled={actionLoading === app._id + '_issue'}
-                        className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                      >
-                        <Award className="h-4 w-4" />
-                        {actionLoading === app._id + '_issue' ? 'Issuing…' : 'Issue Degree & Store on Blockchain'}
-                      </button>
-                    )}
-
-                    {(app.status === 'issued' || app.status === 'rejected') && (
-                      <span className="text-xs text-gray-400 py-2">
-                        {app.status === 'issued' ? '✓ Degree has been issued.' : '✗ Application was rejected.'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })}
+      <div className="inbox-pagination">
+        <label className="flex items-center gap-2">Rows<select aria-label="Rows per page" className="inbox-input" value={limit} onChange={event => change({ limit: event.target.value, page: '' })}>{[10, 20, 50].map(value => <option key={value}>{value}</option>)}</select></label>
+        <span role="status">{loading ? 'Updating…' : `${from}–${Math.min(page * limit, pagination.total)} of ${pagination.total}`}</span>
+        <div className="flex gap-2"><button disabled={loading || page <= 1} onClick={() => change({ page: page - 1 })} className="button-secondary !min-h-10 !py-2">Previous</button><button disabled={loading || page >= pagination.pages} onClick={() => change({ page: page + 1 })} className="button-secondary !min-h-10 !py-2">Next</button></div>
       </div>
-
-      {/* Approve Modal */}
-      {modal?.type === 'approve' && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center">
-                <ThumbsUp className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <h3 className="font-serif font-medium text-navy text-lg">Approve Application</h3>
-                <p className="text-gray-400 text-xs">This will move the application to approved status.</p>
-              </div>
-            </div>
-            <div className="mb-4">
-              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">Comment (optional)</label>
-              <textarea
-                rows={3} placeholder="Add a note for the student…"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-navy resize-none"
-                value={comment} onChange={e => setComment(e.target.value)}
-              />
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setModal(null)} className="flex-1 h-10 border border-gray-200 rounded-lg text-sm text-gray-500 hover:border-navy transition-colors">Cancel</button>
-              <button onClick={handleApprove} disabled={actionLoading} className="flex-1 h-10 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50">
-                {actionLoading ? 'Approving…' : 'Confirm Approve'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reject Modal */}
-      {modal?.type === 'reject' && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center">
-                <XCircle className="h-5 w-5 text-red-500" />
-              </div>
-              <div>
-                <h3 className="font-serif font-medium text-navy text-lg">Reject Application</h3>
-                <p className="text-gray-400 text-xs">The student will see this reason and can reapply.</p>
-              </div>
-            </div>
-            <div className="mb-4">
-              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">Reason for rejection <span className="text-red-400">*</span></label>
-              <textarea
-                rows={3} placeholder="e.g. Transcript scan is illegible. Please resubmit a clear copy."
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-navy resize-none"
-                value={comment} onChange={e => setComment(e.target.value)}
-              />
-              {!comment.trim() && <p className="text-xs text-red-400 mt-1">A reason is required.</p>}
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setModal(null)} className="flex-1 h-10 border border-gray-200 rounded-lg text-sm text-gray-500 hover:border-navy transition-colors">Cancel</button>
-              <button onClick={handleReject} disabled={actionLoading || !comment.trim()} className="flex-1 h-10 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50">
-                {actionLoading ? 'Rejecting…' : 'Confirm Reject'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-    </div>
-  )
+    </section>
+  </div>
 }
-
-export default AdminDashboard

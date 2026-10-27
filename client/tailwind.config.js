@@ -6,17 +6,21 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        serif: ['Inter', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'sans-serif'],
+      },
       colors: {
         navy: {
-          DEFAULT: '#0D1B2A',
-          mid: '#162234',
-          light: '#1E3048',
+          DEFAULT: '#203c63',
+          mid: '#182e4d',
+          light: '#345f94',
         },
         gold: {
-          DEFAULT: '#C9A84C',
-          light: '#E2C87A',
+          DEFAULT: '#c7dcf5',
+          light: '#e3edfa',
         },
-        off: '#F2F0EC',
+        off: '#f8f9fb',
       }
     },
   },

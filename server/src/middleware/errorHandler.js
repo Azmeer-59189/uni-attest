@@ -2,6 +2,7 @@ const logger = require('../utils/logger');
 
 const errorHandler = (err, req, res, next) => {
   logger.error('Error:', err);
+  if (res.headersSent) return next(err);
 
   // Mongoose validation errors
   if (err.name === 'ValidationError') {
@@ -29,6 +30,7 @@ const errorHandler = (err, req, res, next) => {
   }
 
   // Multer errors
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') return res.status(400).json({ error: 'Unexpected file field or too many files. Add up to five documents, or select one replacement.' });
   if (err.code === 'LIMIT_FILE_SIZE') {
     return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });
   }

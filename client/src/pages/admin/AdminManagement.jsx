@@ -1,3 +1,5 @@
+import { PageHeader } from '../../components/UI'
+import { apiError } from '../../utils/apiError'
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import {
@@ -38,7 +40,7 @@ const AdminManagement = () => {
   const handleCreateAdmin = async (e) => {
     e.preventDefault()
     setFormError('')
-    if (form.password.length < 8) { setFormError('Password must be at least 8 characters.'); return }
+    if (form.password.length < 12) { setFormError('Password must be at least 12 characters.'); return }
     setActionLoading('create')
     try {
       await api.post('/admin/admins', form)
@@ -47,7 +49,7 @@ const AdminManagement = () => {
       setShowForm(false)
       setForm({ fullName: '', email: '', password: '', department: '' })
     } catch (err) {
-      setFormError(err.response?.data?.error || 'Failed to create admin.')
+      setFormError(apiError(err, 'Failed to create admin.'))
     } finally {
       setActionLoading(null)
     }
@@ -77,7 +79,7 @@ const AdminManagement = () => {
   )
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="staff-register max-w-6xl mx-auto space-y-6">
 
       {/* Toast */}
       {toast && (
@@ -89,21 +91,11 @@ const AdminManagement = () => {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-serif font-medium text-navy">Admin Management</h1>
-          <p className="text-gray-400 text-sm mt-1">Only super admins can create or deactivate admin accounts.</p>
-        </div>
-        <button onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-navy text-white px-5 py-2.5 rounded-lg hover:bg-navy-light transition-colors text-sm font-medium">
-          <Plus className="h-4 w-4" /> Add Admin
-        </button>
-      </div>
+      <div className="staff-masthead"><p className="staff-office">UNIVERSITY SERVICES <span aria-hidden="true">/</span> STAFF ACCESS</p><PageHeader eyebrow="Access management" title="Your administration team." description="Manage the people who review applications and issue credentials." actions={<button onClick={() => setShowForm(true)} className="button-primary"><Plus className="h-4 w-4" />Add Admin</button>} /></div>
 
       {/* Info box */}
-      <div className="bg-gold/5 border border-gold/20 rounded-xl p-4 flex gap-3">
-        <Shield className="h-5 w-5 text-gold flex-shrink-0 mt-0.5" />
+      <div className="border-y border-[#ccd6e3] py-5 flex gap-3">
+        <Shield className="h-5 w-5 text-blue-800 flex-shrink-0 mt-0.5" />
         <div>
           <p className="text-sm font-medium text-navy mb-1">Role-based access control</p>
           <p className="text-xs text-gray-500 leading-relaxed">
@@ -115,7 +107,7 @@ const AdminManagement = () => {
       </div>
 
       {/* Admins list */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+      <div className="staff-records overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider">
             Admin accounts ({admins.length})
@@ -125,18 +117,18 @@ const AdminManagement = () => {
         {admins.length === 0 ? (
           <div className="p-12 text-center">
             <Users className="h-10 w-10 text-gray-200 mx-auto mb-3" />
-            <p className="text-gray-400 text-sm">No admin accounts yet.</p>
+            <p className="text-gray-500 text-sm">No admin accounts yet.</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
             {admins.map(admin => (
-              <div key={admin._id} className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/50 transition-colors">
+              <div key={admin._id} className="flex flex-wrap sm:flex-nowrap items-center gap-4 px-5 sm:px-6 py-5 hover:bg-gray-50/50 transition-colors">
 
                 {/* Avatar */}
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 ${
                   admin.role === 'super_admin' ? 'bg-gold/20 text-yellow-700'
                   : admin.isActive ? 'bg-navy/10 text-navy'
-                  : 'bg-gray-100 text-gray-400'
+                  : 'bg-gray-100 text-gray-500'
                 }`}>
                   {admin.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                 </div>
@@ -146,17 +138,17 @@ const AdminManagement = () => {
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-medium text-navy">{admin.fullName}</p>
                     {admin.role === 'super_admin' && (
-                      <span className="text-xs bg-gold/10 text-yellow-700 border border-gold/20 px-2 py-0.5 rounded-full">Super Admin</span>
+                      <span className="text-xs bg-blue-50 text-blue-900 border border-blue-200 px-2 py-0.5 rounded-full">Super Admin</span>
                     )}
                     {!admin.isActive && (
                       <span className="text-xs bg-red-50 text-red-500 border border-red-100 px-2 py-0.5 rounded-full">Deactivated</span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">{admin.email}</p>
-                  {admin.department && <p className="text-xs text-gray-300 mt-0.5">{admin.department}</p>}
+                  <p className="text-xs text-gray-500 mt-0.5">{admin.email}</p>
+                  {admin.department && <p className="text-xs text-gray-500 mt-0.5">{admin.department}</p>}
                 </div>
 
-                <p className="text-xs text-gray-300 flex-shrink-0 hidden md:block">
+                <p className="text-xs text-gray-500 flex-shrink-0 hidden md:block">
                   Added {new Date(admin.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </p>
 
@@ -174,7 +166,7 @@ const AdminManagement = () => {
                   </button>
                 )}
                 {admin._id === user?._id && (
-                  <span className="text-xs text-gray-300 px-3">You</span>
+                  <span className="text-xs text-gray-500 px-3">You</span>
                 )}
               </div>
             ))}
@@ -189,9 +181,9 @@ const AdminManagement = () => {
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h3 className="font-serif font-medium text-navy text-lg">Create admin account</h3>
-                <p className="text-gray-400 text-xs mt-0.5">The new admin will log in with these credentials.</p>
+                <p className="text-gray-500 text-xs mt-0.5">The new admin will log in with these credentials.</p>
               </div>
-              <button onClick={() => { setShowForm(false); setFormError('') }} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => { setShowForm(false); setFormError('') }} className="text-gray-500 hover:text-gray-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -224,15 +216,15 @@ const AdminManagement = () => {
               <div>
                 <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">Temporary password <span className="text-gold">*</span></label>
                 <div className="relative">
-                  <input type={showPassword ? 'text' : 'password'} required placeholder="Min. 8 characters"
+                  <input type={showPassword ? 'text' : 'password'} required minLength={12} maxLength={72} placeholder="Min. 12 characters"
                     className="w-full h-11 px-4 pr-11 border border-gray-200 rounded-lg focus:outline-none focus:border-navy text-sm"
                     value={form.password} onChange={update('password')} />
                   <button type="button" onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-600">
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Share this with the admin — they should change it after first login.</p>
+                <p className="text-xs text-gray-500 mt-1">Share this with the admin — they should change it after first login.</p>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => { setShowForm(false); setFormError('') }}
@@ -257,7 +249,7 @@ const AdminManagement = () => {
             <h3 className="font-serif font-medium text-navy text-center text-lg mb-2">
               {confirmToggle.isActive ? 'Deactivate account?' : 'Reactivate account?'}
             </h3>
-            <p className="text-gray-400 text-sm text-center mb-6">
+            <p className="text-gray-500 text-sm text-center mb-6">
               {confirmToggle.isActive
                 ? `${confirmToggle.fullName} will immediately lose access to the admin portal.`
                 : `${confirmToggle.fullName} will regain access to the admin portal.`}

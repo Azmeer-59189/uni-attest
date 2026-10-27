@@ -1,29 +1,24 @@
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 const fs = require('fs');
+const { randomUUID } = require('crypto');
 const path = require('path');
 
 const CERTIFICATES_DIR = path.join(__dirname, '../../uploads/certificates');
-const AMOY_POLYGONSCAN_URL = 'https://amoy.polygonscan.com';
 
 if (!fs.existsSync(CERTIFICATES_DIR)) {
   fs.mkdirSync(CERTIFICATES_DIR, { recursive: true });
 }
 
 const getSafeHash = (hash) => hash.replace(/[^a-zA-Z0-9]/g, '');
-const getChainHash = (hash) => hash.startsWith('0x') ? hash : `0x${hash}`;
-const getPolygonscanSearchUrl = (hash) =>
-  `${AMOY_POLYGONSCAN_URL}/search?f=0&q=${encodeURIComponent(getChainHash(hash))}`;
 
 exports.generateCertificate = async (data, clientUrl = 'http://localhost:5173') => {
   const safeHash = getSafeHash(data.hash);
   const fileName = `certificate-${safeHash}.pdf`;
   const filePath = path.join(CERTIFICATES_DIR, fileName);
 
-  const amoyLookupHash = data.blockchainTx || data.hash;
-  const polygonscanSearchUrl = getPolygonscanSearchUrl(amoyLookupHash);
-
-  const qrDataUrl = await QRCode.toDataURL(polygonscanSearchUrl, {
+  const verificationUrl = `${clientUrl || 'http://localhost:5173'}/verify/${data.hash}`;
+  const qrDataUrl = await QRCode.toDataURL(verificationUrl, {
     width: 120,
     margin: 1,
     color: { dark: '#0D1B2A', light: '#FFFFFF' }
@@ -39,7 +34,11 @@ exports.generateCertificate = async (data, clientUrl = 'http://localhost:5173') 
       bufferPages: true,  // buffer all pages so we can check count
     });
 
-    const stream = fs.createWriteStream(filePath);
+    const tempPath = `${filePath}.${randomUUID()}.tmp`;
+    const stream = fs.createWriteStream(tempPath);
+    const fail = (error) => { stream.destroy(); fs.unlink(tempPath, () => {}); reject(error); };
+    doc.on('error', fail);
+    stream.on('error', fail);
     doc.pipe(stream);
 
     const W = doc.page.width;   // 841.89
@@ -92,7 +91,7 @@ exports.generateCertificate = async (data, clientUrl = 'http://localhost:5173') 
     // ── DEPARTMENT & YEAR ──
     doc.fontSize(11).fillColor('#666666').font('Helvetica')
        .text(
-         `Department of ${data.department}  |  Graduation Year: ${data.graduationYear}${data.cgpa ? `  |  CGPA: ${data.cgpa}` : ''}`,
+         `Department of ${data.department}  |  Graduation Year: ${data.graduationYear}${data.cgpa != null ? `  |  CGPA: ${data.cgpa}` : ''}`,
          0, 272, { align: 'center', width: W }
        );
 
@@ -121,14 +120,14 @@ exports.generateCertificate = async (data, clientUrl = 'http://localhost:5173') 
     // QR code (right)
     doc.image(qrBuffer, W - 200, footerY - 8, { width: 80, height: 80 });
     doc.fontSize(7).fillColor('#888888').font('Helvetica')
-       .text('Scan on Amoy', W - 200, footerY + 74, { width: 80, align: 'center' });
+       .text('Verify certificate', W - 200, footerY + 74, { width: 80, align: 'center' });
 
     const stripX = 60;
     const stripY = H - 86;
     const stripW = W - 120;
     const line1 = `Verification Hash: ${data.hash}`;
     const line2 = data.blockchainTx
-      ? `Amoy Transaction: ${data.blockchainTx}`
+      ? `${data.blockchainNetwork === 'hardhat_local' ? 'Local Test Chain' : 'Amoy'} Transaction: ${data.blockchainTx}`
       : 'Blockchain Transaction: Not available';
 
     doc.rect(stripX, stripY, stripW, 48).fill('#F1EFE6').stroke('#C9A84C');
@@ -143,9 +142,8 @@ exports.generateCertificate = async (data, clientUrl = 'http://localhost:5173') 
     doc.end();
 
     stream.on('finish', () => {
-      resolve(filePath);
+      fs.rename(tempPath, filePath, (error) => { if (error) fail(error); else resolve(filePath); });
     });
-    stream.on('error', reject);
   });
 };
 

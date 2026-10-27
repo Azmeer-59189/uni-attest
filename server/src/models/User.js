@@ -41,6 +41,8 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  tokenVersion: { type: Number, default: 0 },
+  refreshTokenHash: { type: String, select: false },
 
   photoUrl: {
   type: String,
@@ -54,10 +56,7 @@ const userSchema = new mongoose.Schema({
 // ✅ FIX: Mongoose v8 async pre-save hooks don't use next()
 userSchema.pre('save', async function() {
   if (!this.isModified('passwordHash')) return;
-  // Only hash if it's not already hashed
-  if (!this.passwordHash.startsWith('$2')) {
-    this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
-  }
+  this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
 });
 
 userSchema.methods.comparePassword = async function(candidatePassword) {

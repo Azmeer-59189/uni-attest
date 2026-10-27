@@ -59,7 +59,7 @@ const verifyFace = async (req, res) => {
         photoUrl: `/uploads/photos/${photoFilename}`,
       });
 
-      result.photoUrl = `/uploads/photos/${photoFilename}`;
+      result.photoUrl = `/api/files/photos/${req.user._id}`;
     }
 
     res.json(result);

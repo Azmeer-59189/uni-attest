@@ -1,3 +1,4 @@
+import { apiError } from '../utils/apiError'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -32,15 +33,15 @@ const Register = () => {
       await register(formData)
       navigate('/student/dashboard')
     } catch (err) {
-      setError(err.response?.data?.error || 'Registration failed.')
+      setError(apiError(err, 'Registration failed.'))
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="max-w-md mx-auto">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
+    <div className="max-w-lg mx-auto py-2 sm:py-6">
+      <div className="auth-card">
         <div className="w-8 h-1 bg-gold rounded mb-6"></div>
         <h1 className="text-3xl font-serif font-medium text-navy mb-2">Create account</h1>
         <p className="text-gray-500 text-sm mb-8">Register with your university details.</p>
@@ -57,7 +58,7 @@ const Register = () => {
             <input
               type="text"
               required
-              className="w-full h-12 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none"
+              className="w-full h-12 px-4 border border-slate-200 rounded-xl focus:border-navy focus:outline-none"
               value={formData.fullName}
               onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
             />
@@ -68,7 +69,7 @@ const Register = () => {
             <input
               type="email"
               required
-              className="w-full h-12 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none"
+              className="w-full h-12 px-4 border border-slate-200 rounded-xl focus:border-navy focus:outline-none"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             />
@@ -79,7 +80,7 @@ const Register = () => {
             <input
               type="text"
               required
-              className="w-full h-12 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none"
+              className="w-full h-12 px-4 border border-slate-200 rounded-xl focus:border-navy focus:outline-none"
               value={formData.studentId}
               onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
             />
@@ -89,7 +90,7 @@ const Register = () => {
             <label className="block text-xs font-medium text-gray-700 uppercase tracking-wider mb-2">Department</label>
             <select
               required
-              className="w-full h-12 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none bg-white"
+              className="w-full h-12 px-4 border border-slate-200 rounded-xl focus:border-navy focus:outline-none bg-white"
               value={formData.department}
               onChange={(e) => setFormData({ ...formData, department: e.target.value })}
             >
@@ -104,14 +105,14 @@ const Register = () => {
               <input
                 type={showPassword ? 'text' : 'password'}
                 required
-                minLength={6}
-                className="w-full h-12 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none pr-12"
+                minLength={12} maxLength={72}
+                className="w-full h-12 px-4 border border-slate-200 rounded-xl focus:border-navy focus:outline-none pr-12"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               />
               <button
                 type="button"
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500"
                 onClick={() => setShowPassword(!showPassword)}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

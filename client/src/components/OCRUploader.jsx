@@ -185,7 +185,7 @@ export default function OCRUploader({ onFieldsExtracted, token }) {
             </button>
             <button
               onClick={() => { setResult(null); setFile(null); setEditedFields({}); }}
-              className="px-4 py-2.5 border border-slate-700 text-slate-400 hover:text-white rounded-lg text-sm transition-all"
+              className="px-4 py-2.5 border border-slate-700 text-slate-500 hover:text-white rounded-lg text-sm transition-all"
             >
               Reset
             </button>
