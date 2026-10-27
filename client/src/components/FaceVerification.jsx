@@ -1,10 +1,12 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Camera, Upload, CheckCircle, XCircle, RefreshCw, Shield } from 'lucide-react'
 
 const FaceVerification = ({ api, onVerified }) => {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
+  const mounted = useRef(true)
+  const requestRef = useRef(null)
 
   const [idPhoto, setIdPhoto] = useState(null)
   const [idPreview, setIdPreview] = useState(null)
@@ -15,10 +17,29 @@ const FaceVerification = ({ api, onVerified }) => {
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      streamRef.current?.getTracks().forEach(track => track.stop())
+      requestRef.current?.abort()
+    }
+  }, [])
+  useEffect(() => () => { if (idPreview) URL.revokeObjectURL(idPreview) }, [idPreview])
+  useEffect(() => {
+    if (cameraOn && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
+    }
+  }, [cameraOn])
+
   // Handle ID photo upload
   const handleIdUpload = (e) => {
     const file = e.target.files[0]
     if (!file) return
+    if (file.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Choose a JPG, PNG, or WEBP image of 10MB or less.'); return
+    }
     setIdPhoto(file)
     setIdPreview(URL.createObjectURL(file))
     setResult(null)
@@ -31,6 +52,7 @@ const FaceVerification = ({ api, onVerified }) => {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: 'user' }
       })
+      if (!mounted.current) { stream.getTracks().forEach(track => track.stop()); return }
       streamRef.current = stream
       if (videoRef.current) videoRef.current.srcObject = stream
       setCameraOn(true)
@@ -54,10 +76,12 @@ const FaceVerification = ({ api, onVerified }) => {
     if (!videoRef.current || !canvasRef.current) return
     const canvas = canvasRef.current
     const video = videoRef.current
+    if (video.readyState < 2 || !video.videoWidth) { setError('Camera is still loading. Please try again.'); return }
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     canvas.getContext('2d').drawImage(video, 0, 0)
     canvas.toBlob((blob) => {
+      if (!blob || !mounted.current) return
       const file = new File([blob], 'selfie.jpg', { type: 'image/jpeg' })
       setSelfie(file)
       setSelfiePreview(canvas.toDataURL('image/jpeg'))
@@ -86,6 +110,7 @@ const FaceVerification = ({ api, onVerified }) => {
     setResult(null)
 
     try {
+      requestRef.current = new AbortController()
       const fd = new FormData()
       fd.append('id_photo', idPhoto)
       fd.append('selfie', selfie)
@@ -93,14 +118,11 @@ const FaceVerification = ({ api, onVerified }) => {
       const { data } = await api.post('/face/verify', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 90000,
+        signal: requestRef.current.signal,
       })
 
       setResult(data)
 
-      if (data.match) {
-        // Wait 2 seconds to show success then move on
-        setTimeout(() => onVerified(data.photoUrl), 2000)
-      }
     } catch (err) {
       const msg = err.response?.data?.error || 'Verification failed. Please try again.'
       setError(msg)
@@ -112,12 +134,12 @@ const FaceVerification = ({ api, onVerified }) => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 p-4 bg-navy/5 rounded-xl border border-navy/10">
-        <Shield className="h-5 w-5 text-navy flex-shrink-0" />
+      <div className="flex items-start gap-3 border-y border-rule py-4">
+        <Shield className="h-5 w-5 text-ink-soft flex-shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-medium text-navy">Identity Verification Required</p>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Upload your CNIC or passport photo, then take a selfie. Our AI will verify they match.
+          <p className="text-sm font-medium text-ink">Optional photo comparison</p>
+          <p className="text-xs text-ink-faint mt-0.5">
+            Compare your ID photo with a selfie. You can skip this check and submit supporting documents for review.
           </p>
         </div>
       </div>
@@ -125,33 +147,35 @@ const FaceVerification = ({ api, onVerified }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* ID Photo */}
         <div>
-          <p className="text-xs font-medium text-gray-600 uppercase tracking-wider mb-2">
-            Step 1 — Upload ID Photo
-          </p>
-          <label className={`block border-2 border-dashed rounded-xl overflow-hidden cursor-pointer transition-all ${
-            idPreview ? 'border-green-400' : 'border-gray-200 hover:border-navy'
+          <p id="id-photo-label" className="field-label mb-2">1 · Your ID photo</p>
+          {/* sr-only, not display:none, so the file input stays reachable by keyboard. */}
+          <label className={`block border-2 border-dashed rounded-md overflow-hidden cursor-pointer bg-white transition-colors focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-navy ${
+            idPreview ? 'border-emerald-600' : 'border-rule-strong hover:border-ink'
           }`}>
             <input
               type="file"
-              accept="image/*"
-              className="hidden"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={loading}
+              aria-labelledby="id-photo-label"
+              aria-describedby="id-photo-hint"
+              className="sr-only"
               onChange={handleIdUpload}
             />
             {idPreview ? (
               <div className="relative">
-                <img src={idPreview} alt="ID" className="w-full h-48 object-cover" />
-                <div className="absolute top-2 right-2 bg-green-500 text-white rounded-full p-1">
+                <img src={idPreview} alt="Your uploaded ID photo" className="w-full h-48 object-cover" />
+                <div aria-hidden="true" className="absolute top-2 right-2 bg-emerald-700 text-white rounded-full p-1">
                   <CheckCircle className="h-4 w-4" />
                 </div>
-                <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs text-center py-1">
-                  Click to change
+                <div id="id-photo-hint" className="absolute bottom-0 left-0 right-0 bg-black/70 text-white text-xs text-center py-1">
+                  Choose another file to change it
                 </div>
               </div>
             ) : (
-              <div className="h-48 flex flex-col items-center justify-center gap-2 text-gray-400">
+              <div className="h-48 flex flex-col items-center justify-center gap-2 text-ink-faint">
                 <Upload className="h-8 w-8" />
-                <p className="text-sm font-medium">Upload CNIC / Passport</p>
-                <p className="text-xs">JPG, PNG · Max 10MB</p>
+                <p className="text-sm font-medium text-ink">Upload your CNIC or passport</p>
+                <p id="id-photo-hint" className="text-xs">JPG, PNG or WEBP · up to 10MB</p>
               </div>
             )}
           </label>
@@ -159,21 +183,19 @@ const FaceVerification = ({ api, onVerified }) => {
 
         {/* Selfie */}
         <div>
-          <p className="text-xs font-medium text-gray-600 uppercase tracking-wider mb-2">
-            Step 2 — Take a Selfie
-          </p>
-          <div className={`border-2 border-dashed rounded-xl overflow-hidden transition-all ${
-            selfiePreview ? 'border-green-400' : cameraOn ? 'border-navy' : 'border-gray-200'
+          <p className="field-label mb-2">2 · A selfie</p>
+          <div className={`border-2 border-dashed rounded-md overflow-hidden transition-all ${
+            selfiePreview ? 'border-emerald-600' : cameraOn ? 'border-ink' : 'border-rule-strong'
           }`}>
             {selfiePreview ? (
               <div className="relative">
-                <img src={selfiePreview} alt="Selfie" className="w-full h-48 object-cover" />
-                <div className="absolute top-2 right-2 bg-green-500 text-white rounded-full p-1">
+                <img src={selfiePreview} alt="Your selfie" className="w-full h-48 object-cover" />
+                <div aria-hidden="true" className="absolute top-2 right-2 bg-emerald-700 text-white rounded-full p-1">
                   <CheckCircle className="h-4 w-4" />
                 </div>
                 <button
                   onClick={retakeSelfie}
-                  className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/60 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-black/80 transition-colors"
+                  className="absolute bottom-2 right-2 flex min-h-9 items-center gap-1 bg-black/75 text-white text-xs px-3 rounded-md hover:bg-black/90 transition-colors"
                 >
                   <RefreshCw className="h-3 w-3" /> Retake
                 </button>
@@ -185,26 +207,24 @@ const FaceVerification = ({ api, onVerified }) => {
                   autoPlay
                   playsInline
                   muted
+                  aria-label="Camera preview"
                   className="w-full h-48 object-cover scale-x-[-1]"
                 />
                 <canvas ref={canvasRef} className="hidden" />
                 <button
                   onClick={captureSelfie}
-                  className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-white text-navy font-medium text-sm px-6 py-2 rounded-full shadow-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                  className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-white text-ink font-medium text-sm px-5 min-h-10 rounded-md border border-rule-strong hover:border-ink transition-colors flex items-center gap-2"
                 >
                   <Camera className="h-4 w-4" /> Capture
                 </button>
               </div>
             ) : (
               <div className="h-48 flex flex-col items-center justify-center gap-2">
-                <Camera className="h-8 w-8 text-gray-300" />
-                <button
-                  onClick={startCamera}
-                  className="bg-navy text-white text-sm font-medium px-5 py-2 rounded-lg hover:bg-navy-light transition-colors"
-                >
-                  Open Camera
+                <Camera aria-hidden="true" className="h-8 w-8 text-ink-faint" />
+                <button onClick={startCamera} className="button-secondary !min-h-10">
+                  Open camera
                 </button>
-                <p className="text-xs text-gray-400">Make sure your face is clearly visible</p>
+                <p className="text-xs text-ink-faint">Make sure your face is clearly visible</p>
               </div>
             )}
           </div>
@@ -212,29 +232,30 @@ const FaceVerification = ({ api, onVerified }) => {
       </div>
 
       {/* Tips */}
-      <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
-        <p className="text-xs font-medium text-amber-700 mb-1">Tips for best results</p>
-        <ul className="text-xs text-amber-600 space-y-0.5">
-          <li>• Make sure your face is clearly visible in both photos</li>
-          <li>• Good lighting — avoid backlighting or dark environments</li>
-          <li>• Look directly at the camera for your selfie</li>
-          <li>• ID photo should be flat and unobstructed</li>
+      <div className="text-xs text-ink-soft">
+        <p className="font-medium text-ink mb-1">For the best result</p>
+        <ul className="list-disc pl-4 space-y-0.5">
+          <li>Make sure your face is clearly visible in both photos</li>
+          <li>Use good, even light, and avoid bright light behind you</li>
+          <li>Look straight at the camera for your selfie</li>
+          <li>Lay the ID flat, with nothing covering the photo</li>
         </ul>
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-100 text-red-600 p-3 rounded-lg text-sm">
-          <XCircle className="h-4 w-4 flex-shrink-0" />
+        <p role="alert" className="flex items-center gap-2 border-l-2 border-red-700 bg-red-50 text-red-800 p-3 text-sm">
+          <XCircle aria-hidden="true" className="h-4 w-4 flex-shrink-0" />
           {error}
-        </div>
+        </p>
       )}
 
       {/* Result */}
+      <div aria-live="polite">{loading && <p className="sr-only">Comparing your photos. This can take 20 to 30 seconds.</p>}</div>
       {result && (
-        <div className={`flex items-center gap-3 p-4 rounded-xl border ${
+        <div role="status" className={`flex items-center gap-3 p-4 border-l-2 ${
           result.match
-            ? 'bg-green-50 border-green-200 text-green-700'
-            : 'bg-red-50 border-red-200 text-red-700'
+            ? 'bg-emerald-50 border-emerald-700 text-emerald-900'
+            : 'bg-red-50 border-red-700 text-red-800'
         }`}>
           {result.match
             ? <CheckCircle className="h-5 w-5 flex-shrink-0" />
@@ -242,11 +263,11 @@ const FaceVerification = ({ api, onVerified }) => {
           }
           <div>
             <p className="font-medium text-sm">
-              {result.match ? 'Identity Verified ✓' : 'Faces Do Not Match'}
+              {result.match ? 'Photos match' : 'The photos don’t match'}
             </p>
-            <p className="text-xs mt-0.5 opacity-75">
+            <p className="text-xs mt-0.5">
               {result.match
-                ? `Confidence: ${result.confidence}% — Proceeding to next step…`
+                ? `Similarity ${result.confidence}%. You can continue to your documents.`
                 : 'Please retake your selfie or upload a clearer ID photo and try again.'
               }
             </p>
@@ -255,19 +276,20 @@ const FaceVerification = ({ api, onVerified }) => {
       )}
 
       {/* Verify button */}
+      {result?.match && <button onClick={() => onVerified(result.photoUrl)} className="button-primary w-full">Continue to documents</button>}
       {!result?.match && (
         <button
           onClick={handleVerify}
           disabled={loading || !idPhoto || !selfie}
-          className="w-full h-11 bg-navy text-white rounded-lg hover:bg-navy-light transition-colors disabled:opacity-40 text-sm font-medium flex items-center justify-center gap-2"
+          className="button-primary w-full"
         >
           {loading ? (
             <>
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Verifying identity… this may take 20–30 seconds
+              Comparing photos… this can take 20–30 seconds
             </>
           ) : (
-            <><Shield className="h-4 w-4" /> Verify Identity</>
+            <><Shield className="h-4 w-4" /> Compare photos</>
           )}
         </button>
       )}

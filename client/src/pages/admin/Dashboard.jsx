@@ -1,428 +1,171 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, ArrowUpRight, RefreshCw, Search } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import {
-  FileText, Clock, CheckCircle, Award, XCircle,
-  Eye, ThumbsUp, ThumbsDown, ChevronDown, ChevronUp,
-  Search, RefreshCw, AlertCircle, Users
-} from 'lucide-react'
+import { StatusBadge, statusLabels, formatDate } from '../../components/ApplicationRecord'
+import { ApplicationRecordView } from '../ApplicationDetail'
 
-const STATUS_CONFIG = {
-  pending:      { label: 'Pending',      cls: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
-  under_review: { label: 'Under Review', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
-  approved:     { label: 'Approved',     cls: 'bg-green-50 text-green-700 border-green-200' },
-  issued:       { label: 'Issued',       cls: 'bg-purple-50 text-purple-700 border-purple-200' },
-  rejected:     { label: 'Rejected',     cls: 'bg-red-50 text-red-700 border-red-200' },
+const views = { active: 'Needs attention', history: 'Completed', all: 'All' }
+const activeStatuses = ['pending', 'under_review', 'approved', 'issuing']
+const closedStatuses = ['issued', 'rejected', 'withdrawn']
+const day = 86400000
+const isTyping = target => target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+
+function age(application) {
+  const days = Math.floor((Date.now() - new Date(application.submittedAt || application.createdAt)) / day)
+  return { days, label: days < 1 ? 'today' : `${days}d` }
 }
 
-const AdminDashboard = () => {
-  const [stats, setStats] = useState({ total: 0, pending: 0, underReview: 0, approved: 0, issued: 0, rejected: 0 })
+export default function AdminDashboard() {
+  const { api } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+  const view = Object.hasOwn(views, params.get('view')) ? params.get('view') : 'active'
+  const statuses = view === 'active' ? activeStatuses : view === 'history' ? closedStatuses : [...activeStatuses, ...closedStatuses]
+  const status = statuses.includes(params.get('status')) ? params.get('status') : ''
+  const search = (params.get('search') || '').slice(0, 100)
+  const page = Math.max(1, Number.parseInt(params.get('page'), 10) || 1)
+  const limit = [10, 20, 50].includes(Number(params.get('limit'))) ? Number(params.get('limit')) : 20
+  const selected = /^[a-f0-9]{24}$/i.test(params.get('selected') || '') ? params.get('selected') : ''
+  const [stats, setStats] = useState({})
   const [applications, setApplications] = useState([])
+  const [pagination, setPagination] = useState({ total: 0, pages: 0 })
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState('all')
-  const [search, setSearch] = useState('')
-  const [expandedId, setExpandedId] = useState(null)
-  const [actionLoading, setActionLoading] = useState(null)
-  const [modal, setModal] = useState(null) // { type: 'reject'|'approve'|'issue', appId }
-  const [comment, setComment] = useState('')
-  const [toast, setToast] = useState(null)
-  const { user, api } = useAuth()
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState('')
+  const [revision, setRevision] = useState(0)
+  const sequence = useRef(0)
+  const detail = useRef(null)
+  const previousSelection = useRef(selected)
+  const change = (values, options = { replace: true }) => setParams(previous => {
+    const next = new URLSearchParams(previous)
+    for (const [key, value] of Object.entries(values)) value ? next.set(key, String(value)) : next.delete(key)
+    return next
+  }, options)
+  // Opening a record from the list adds a history entry, so the browser's Back returns to the list.
+  // Moving between open records replaces it, so Back doesn't step through every record viewed.
+  const open = id => change({ selected: id }, selected ? { replace: true, state: location.state } : { state: { fromQueue: true } })
+  const closeRecord = () => location.state?.fromQueue ? navigate(-1) : change({ selected: '' })
+  const narrow = () => window.matchMedia('(max-width: 1023px)').matches
 
-  useEffect(() => { fetchDashboard() }, [])
+  useEffect(() => {
+    const request = ++sequence.current
+    const controller = new AbortController()
+    setLoading(true); setError('')
+    const timer = setTimeout(async () => {
+      try {
+        const records = await api.get('/admin/applications', { params: { view, status: status || undefined, search, page, limit }, signal: controller.signal })
+        if (request !== sequence.current) return
+        setApplications(records.data.applications)
+        setPagination(records.data.pagination)
+        setLoaded(true)
+        const last = Math.max(1, records.data.pagination.pages)
+        if (page > last) setParams(previous => { const next = new URLSearchParams(previous); next.set('page', last); return next }, { replace: true })
+      } catch (err) {
+        if (!controller.signal.aborted) setError('Could not load applications. Please retry.')
+      } finally {
+        if (request === sequence.current) setLoading(false)
+      }
+    }, 250)
+    return () => { clearTimeout(timer); controller.abort(); sequence.current += 1 }
+  }, [api, view, status, search, page, limit, revision, setParams])
 
-  const fetchDashboard = async () => {
-    setLoading(true)
-    try {
-      const [dashRes, appsRes] = await Promise.all([
-        api.get('/admin/dashboard'),
-        api.get('/admin/applications')
-      ])
-      setStats(dashRes.data.stats)
-      setApplications(appsRes.data.applications)
-    } catch (error) {
-      console.error('Failed to fetch:', error)
-      showToast('Failed to load data. Is the server running?', 'error')
-    } finally {
-      setLoading(false)
+  // Totals don't depend on the search or filters, so they reload only on refresh.
+  useEffect(() => {
+    const controller = new AbortController()
+    api.get('/admin/dashboard', { signal: controller.signal }).then(({ data }) => setStats(data.stats)).catch(() => {})
+    return () => controller.abort()
+  }, [api, revision])
+
+  // On narrow screens the list and the record take turns: move focus with them so it is never left on a hidden row.
+  useEffect(() => {
+    const previous = previousSelection.current
+    previousSelection.current = selected
+    if (detail.current) detail.current.scrollTop = 0
+    if (!narrow()) return
+    if (selected) { window.scrollTo(0, 0); detail.current?.focus({ preventScroll: true }) }
+    else if (previous) {
+      const row = document.getElementById(`queue-${previous}`)
+      row?.scrollIntoView({ block: 'center' }); row?.focus({ preventScroll: true })
     }
+  }, [selected])
+
+  // J / K or the arrow keys step through the queue. They work only while focus is in the queue,
+  // so single-letter shortcuts can't fire by accident elsewhere (WCAG 2.1.4).
+  const queueKeys = event => {
+    if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return
+    const step = { j: 1, arrowdown: 1, k: -1, arrowup: -1 }[event.key.toLowerCase()]
+    if (!step || !applications.length) return
+    event.preventDefault()
+    const index = applications.findIndex(application => application._id === selected)
+    const next = applications[Math.min(applications.length - 1, Math.max(0, index < 0 ? 0 : index + step))]
+    if (next._id !== selected) open(next._id)
+    const row = document.getElementById(`queue-${next._id}`)
+    row?.focus({ preventScroll: true }); row?.scrollIntoView({ block: 'nearest' })
   }
+  const selectedInView = applications.some(application => application._id === selected)
 
-  const showToast = (msg, type = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
+  const activeCount = (stats.pending || 0) + (stats.underReview || 0) + (stats.approved || 0) + (stats.issuing || 0)
+  const completedCount = (stats.issued || 0) + (stats.rejected || 0) + (stats.withdrawn || 0)
+  const counts = { active: activeCount, history: completedCount, all: stats.total || 0 }
+  const from = pagination.total ? (page - 1) * limit + 1 : 0
+  const refresh = () => setRevision(value => value + 1)
+  const oldest = view === 'active' && page === 1 && applications[0] ? age(applications[0]) : null
 
-  const handleStartReview = async (appId) => {
-    setActionLoading(appId + '_review')
-    try {
-      await api.patch(`/admin/applications/${appId}/review`)
-      await fetchDashboard()
-      showToast('Application moved to Under Review.')
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Action failed.', 'error')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const handleApprove = async () => {
-    if (!modal) return
-    setActionLoading(modal.appId + '_approve')
-    try {
-      await api.patch(`/admin/applications/${modal.appId}/approve`, {
-        comments: comment || 'Application approved.'
-      })
-      await fetchDashboard()
-      showToast('Application approved successfully.')
-      setModal(null)
-      setComment('')
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Action failed.', 'error')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const handleReject = async () => {
-    if (!modal || !comment.trim()) return
-    setActionLoading(modal.appId + '_reject')
-    try {
-      await api.patch(`/admin/applications/${modal.appId}/reject`, {
-        reason: comment
-      })
-      await fetchDashboard()
-      showToast('Application rejected.')
-      setModal(null)
-      setComment('')
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Action failed.', 'error')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const handleIssueDegree = async (appId) => {
-    setActionLoading(appId + '_issue')
-    try {
-      const res = await api.post(`/admin/applications/${appId}/issue`)
-      await fetchDashboard()
-      showToast('Degree issued and hash stored successfully!')
-      setExpandedId(appId) // keep expanded so they can see the hash
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to issue degree.', 'error')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const filteredApps = applications.filter(app => {
-    const matchesFilter = filter === 'all' || app.status === filter
-    const matchesSearch = !search ||
-      app.student?.fullName?.toLowerCase().includes(search.toLowerCase()) ||
-      app.student?.studentId?.toLowerCase().includes(search.toLowerCase()) ||
-      app.programName?.toLowerCase().includes(search.toLowerCase())
-    return matchesFilter && matchesSearch
-  })
-
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-navy"></div>
-    </div>
-  )
-
-  return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 transition-all ${
-          toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-navy text-white border-l-4 border-gold'
-        }`}>
-          {toast.type === 'error' ? <AlertCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
-          {toast.msg}
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-serif font-medium text-navy">Admin Dashboard</h1>
-          <p className="text-gray-400 text-sm mt-1">Welcome, {user?.fullName}
-            {user?.role === 'super_admin' && (
-              <span className="ml-2 text-xs bg-gold/10 text-yellow-700 border border-gold/20 px-2 py-0.5 rounded-full">Super Admin</span>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {user?.role === 'super_admin' && (
-            <Link to="/admin/manage-admins"
-              className="flex items-center gap-2 text-sm text-navy border border-navy/20 bg-navy/5 px-4 py-2 rounded-lg hover:bg-navy/10 transition-colors font-medium">
-              <Users className="h-3.5 w-3.5" /> Manage Admins
-            </Link>
-          )}
-          <button onClick={fetchDashboard} className="flex items-center gap-2 text-sm text-gray-500 hover:text-navy border border-gray-200 px-4 py-2 rounded-lg hover:border-navy transition-colors">
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
-          </button>
-        </div>
+  return <div className="console" data-open={selected ? 'true' : 'false'}>
+    <section className="console-queue" aria-labelledby="queue-title" onKeyDown={queueKeys}>
+      <div className="flex items-start justify-between gap-3 px-4 pt-5 pb-3">
+        <div><h1 id="queue-title" className="text-base font-semibold text-ink">Application queue</h1><p className="mt-0.5 text-xs text-ink-faint">{view === 'active' ? 'Oldest submissions first' : 'Newest records first'}{oldest && oldest.days > 0 && <> · oldest waiting <span className="font-mono">{oldest.label}</span></>}</p></div>
+        <button disabled={loading} onClick={refresh} aria-label="Refresh queue" className="flex h-9 w-9 items-center justify-center rounded-md text-ink-soft hover:bg-white hover:text-ink"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
       </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-5 gap-3">
-        {[
-          { label: 'Total',       val: stats.total,      color: 'text-navy',        bg: 'bg-white' },
-          { label: 'Pending',     val: stats.pending,    color: 'text-yellow-600',  bg: 'bg-white' },
-          { label: 'In Review',   val: stats.underReview,color: 'text-blue-600',    bg: 'bg-white' },
-          { label: 'Approved',    val: stats.approved,   color: 'text-green-600',   bg: 'bg-white' },
-          { label: 'Issued',      val: stats.issued,     color: 'text-purple-600',  bg: 'bg-white' },
-        ].map(({ label, val, color, bg }) => (
-          <div key={label} className={`${bg} rounded-xl border border-gray-100 p-4`}>
-            <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">{label}</p>
-            <p className={`text-3xl font-medium ${color}`}>{val}</p>
-          </div>
-        ))}
+      <div className="console-tabs" role="group" aria-label="Application views">
+        {Object.entries(views).map(([key, label]) => <button key={key} aria-pressed={view === key} onClick={() => change({ view: key, status: '', page: '' })}>{label}<span>{loaded ? counts[key] : '–'}</span></button>)}
       </div>
-
-      {/* Filters + Search */}
-      <div className="flex gap-3 flex-wrap items-center">
-        <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
-          <input
-            type="text" placeholder="Search by name, ID, or program…"
-            className="w-full h-10 pl-9 pr-4 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-navy"
-            value={search} onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {['all', 'pending', 'under_review', 'approved', 'issued', 'rejected'].map(f => (
-            <button key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                filter === f ? 'bg-navy text-white border-navy' : 'bg-white text-gray-500 border-gray-200 hover:border-navy hover:text-navy'
-              }`}>
-              {f === 'all' ? 'All' : f.replace('_', ' ')}
-            </button>
-          ))}
-        </div>
+      <div className="flex gap-2 px-4 py-3 border-b border-rule">
+        <label className="relative min-w-0 flex-1"><span className="sr-only">Search applications</span><Search className="pointer-events-none absolute left-2.5 top-3 h-4 w-4 text-ink-faint" /><input type="search" className="console-input w-full !pl-8" placeholder="Name, ID, program…" value={search} maxLength={100} onChange={event => change({ search: event.target.value, page: '' })} /></label>
+        <label><span className="sr-only">Filter by status</span><select className="console-input max-w-[9.5rem]" value={status} onChange={event => change({ status: event.target.value, page: '' })}><option value="">All statuses</option>{statuses.map(value => <option key={value} value={value}>{statusLabels[value]}</option>)}</select></label>
       </div>
-
-      {/* Applications list */}
-      <div className="space-y-3">
-        {filteredApps.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-100 p-12 text-center">
-            <FileText className="h-10 w-10 text-gray-200 mx-auto mb-3" />
-            <p className="text-gray-400 text-sm">No applications found.</p>
-          </div>
-        ) : filteredApps.map(app => {
-          const cfg = STATUS_CONFIG[app.status] || STATUS_CONFIG.pending
-          const isExpanded = expandedId === app._id
-
-          return (
-            <div key={app._id} className={`bg-white rounded-xl border transition-colors ${isExpanded ? 'border-navy' : 'border-gray-100'}`}>
-
-              {/* Row */}
-              <div className="flex items-center gap-4 p-5 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : app._id)}>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-1">
-                    <p className="font-medium text-navy text-sm">{app.student?.fullName || 'Unknown'}</p>
-                    <span className="text-gray-300 text-xs">·</span>
-                    <p className="text-gray-400 text-xs">{app.student?.studentId}</p>
-                  </div>
-                  <p className="text-gray-500 text-xs">{app.programName} — {app.department} · {app.graduationYear}</p>
-                  <p className="text-gray-300 text-xs mt-0.5">Submitted {new Date(app.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-                </div>
-                <span className={`text-xs font-medium px-3 py-1 rounded-full border ${cfg.cls}`}>{cfg.label}</span>
-                {isExpanded ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
-              </div>
-
-              {/* Expanded detail */}
-              {isExpanded && (
-                <div className="border-t border-gray-100 p-5 space-y-4">
-
-                  {/* Details grid */}
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      ['Full Name', app.student?.fullName],
-                      ['Student ID', app.student?.studentId],
-                      ['Email', app.student?.email],
-                      ['Program', app.programName],
-                      ['Department', app.department],
-                      ['Graduation Year', app.graduationYear],
-                      ['CGPA', app.cgpa || '—'],
-                      ['Documents', app.documents?.length ? `${app.documents.length} uploaded` : 'None'],
-                      ['Applied', new Date(app.createdAt).toLocaleDateString()],
-                    ].map(([label, value]) => (
-                      <div key={label} className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">{label}</p>
-                        <p className="text-sm font-medium text-navy truncate">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Admin comments / rejection reason */}
-                  {app.adminComments && (
-                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-                      <p className="text-xs font-medium text-blue-600 mb-1">Admin Comment</p>
-                      <p className="text-sm text-blue-800">{app.adminComments}</p>
-                    </div>
-                  )}
-                  {app.rejectionReason && (
-                    <div className="bg-red-50 border border-red-100 rounded-lg p-3">
-                      <p className="text-xs font-medium text-red-600 mb-1">Rejection Reason</p>
-                      <p className="text-sm text-red-800">{app.rejectionReason}</p>
-                    </div>
-                  )}
-
-                  {/* Issued degree hash + PDF */}
-                  {app.status === 'issued' && app.degree && (
-                    <div className="bg-navy rounded-xl p-4 flex items-center gap-4">
-                      <Award className="h-6 w-6 text-gold flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm font-medium mb-0.5">Degree issued</p>
-                        <p className="text-gray-400 text-xs font-mono truncate">
-                          {app.degree?.hash || 'Hash not available'}
-                        </p>
-                        {app.degree?.blockchainTx && (
-                          <p className="text-gray-500 text-xs font-mono truncate mt-0.5">
-                            TX: {app.degree.blockchainTx}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-2 flex-shrink-0">
-                        <button
-                          onClick={() => { navigator.clipboard.writeText(app.degree.hash); showToast('Hash copied!') }}
-                          className="text-xs bg-white/10 hover:bg-white/20 text-gold px-3 py-1.5 rounded-lg transition-colors">
-                          Copy hash
-                        </button>
-                        {app.degree?.pdfUrl && (
-                          <a href={`http://localhost:5000${app.degree.pdfUrl}`} target="_blank" rel="noreferrer"
-                            className="text-xs bg-white/10 hover:bg-white/20 text-gold px-3 py-1.5 rounded-lg transition-colors text-center">
-                            ↓ Certificate PDF
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
-                  <div className="flex gap-2 pt-1">
-                    {app.status === 'pending' && (
-                      <button
-                        onClick={() => handleStartReview(app._id)}
-                        disabled={actionLoading === app._id + '_review'}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                      >
-                        <Eye className="h-4 w-4" />
-                        {actionLoading === app._id + '_review' ? 'Processing…' : 'Start Review'}
-                      </button>
-                    )}
-
-                    {app.status === 'under_review' && (
-                      <>
-                        <button
-                          onClick={() => { setModal({ type: 'approve', appId: app._id }); setComment('') }}
-                          className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          <ThumbsUp className="h-4 w-4" /> Approve
-                        </button>
-                        <button
-                          onClick={() => { setModal({ type: 'reject', appId: app._id }); setComment('') }}
-                          className="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          <ThumbsDown className="h-4 w-4" /> Reject
-                        </button>
-                      </>
-                    )}
-
-                    {app.status === 'approved' && (
-                      <button
-                        onClick={() => handleIssueDegree(app._id)}
-                        disabled={actionLoading === app._id + '_issue'}
-                        className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                      >
-                        <Award className="h-4 w-4" />
-                        {actionLoading === app._id + '_issue' ? 'Issuing…' : 'Issue Degree & Store on Blockchain'}
-                      </button>
-                    )}
-
-                    {(app.status === 'issued' || app.status === 'rejected') && (
-                      <span className="text-xs text-gray-400 py-2">
-                        {app.status === 'issued' ? '✓ Degree has been issued.' : '✗ Application was rejected.'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )
+      {(search || status) && <div className="flex justify-between px-4 py-2 text-xs text-ink-faint border-b border-rule"><span>{loaded ? `${pagination.total} matching` : 'Searching…'}</span><button className="text-link" onClick={() => change({ search: '', status: '', page: '' })}>Clear filters</button></div>}
+      {error && <div role="alert" className="m-4 border-l-2 border-red-700 bg-red-50 p-3 text-sm text-red-800">{error}<button className="ml-3 underline" onClick={refresh}>Retry</button></div>}
+      <ul aria-busy={loading} aria-label={`${views[view]} applications`} className={`flex-1 ${loading ? 'opacity-60' : ''}`}>
+        {applications.map(application => {
+          const waiting = age(application)
+          return <li key={application._id}><button id={`queue-${application._id}`} className="queue-row w-full" aria-current={selected === application._id ? 'true' : undefined} onClick={() => open(application._id)}>
+            <span className="queue-name">{application.student?.fullName || 'Student unavailable'}</span>
+            <time className="queue-age" dateTime={application.submittedAt || application.createdAt} title={formatDate(application.submittedAt || application.createdAt)} data-late={activeStatuses.includes(application.status) && waiting.days >= 5 ? 'true' : undefined}>{waiting.label}</time>
+            <span className="queue-sub"><StatusBadge status={application.status} /><span aria-hidden="true">·</span><span className="truncate">{application.programName} · {application.graduationYear}</span></span>
+          </button></li>
         })}
+      </ul>
+      {!applications.length && !error && <div className="px-4 py-12 text-center"><p className="font-medium text-ink">{loading ? 'Loading applications…' : search || status ? 'No matching applications' : view === 'active' ? 'The queue is clear' : 'No records here yet'}</p><p className="mt-1 text-sm text-ink-faint">{!loading && (search || status ? 'Try another search or clear your filters.' : view === 'active' ? 'New submissions will appear here.' : 'Applications appear here as they move through review.')}</p></div>}
+      <div className="sticky bottom-0 mt-auto flex items-center justify-between gap-2 border-t border-rule bg-[#fbfaf7] px-4 py-2.5 text-xs text-ink-faint">
+        <span role="status" className="font-mono">{loading ? 'Updating…' : `${from}–${Math.min(page * limit, pagination.total)} / ${pagination.total}`}</span>
+        <span className="hidden lg:inline"><kbd>↑</kbd> <kbd>↓</kbd> to move</span>
+        <div className="flex items-center gap-1">
+          <label><span className="sr-only">Rows per page</span><select className="console-input !min-h-9 !py-1" value={limit} onChange={event => change({ limit: event.target.value, page: '' })}>{[10, 20, 50].map(value => <option key={value}>{value}</option>)}</select></label>
+          <button disabled={loading || page <= 1} onClick={() => change({ page: page - 1 })} className="button-secondary !min-h-9 !px-2.5 !py-1 !text-xs">Prev</button>
+          <button disabled={loading || page >= pagination.pages} onClick={() => change({ page: page + 1 })} className="button-secondary !min-h-9 !px-2.5 !py-1 !text-xs">Next</button>
+        </div>
       </div>
+    </section>
 
-      {/* Approve Modal */}
-      {modal?.type === 'approve' && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center">
-                <ThumbsUp className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <h3 className="font-serif font-medium text-navy text-lg">Approve Application</h3>
-                <p className="text-gray-400 text-xs">This will move the application to approved status.</p>
-              </div>
-            </div>
-            <div className="mb-4">
-              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">Comment (optional)</label>
-              <textarea
-                rows={3} placeholder="Add a note for the student…"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-navy resize-none"
-                value={comment} onChange={e => setComment(e.target.value)}
-              />
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setModal(null)} className="flex-1 h-10 border border-gray-200 rounded-lg text-sm text-gray-500 hover:border-navy transition-colors">Cancel</button>
-              <button onClick={handleApprove} disabled={actionLoading} className="flex-1 h-10 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50">
-                {actionLoading ? 'Approving…' : 'Confirm Approve'}
-              </button>
-            </div>
-          </div>
+    <section ref={detail} tabIndex={-1} className="console-detail focus:outline-none" aria-label="Selected application">
+      {selected ? <div className="px-4 py-5 sm:px-8 sm:py-7 max-w-4xl">
+        <div className="mb-5 flex items-center justify-between gap-3 text-sm">
+          <button onClick={closeRecord} className="lg:hidden inline-flex min-h-11 items-center gap-2 text-ink-soft hover:text-ink"><ArrowLeft className="h-4 w-4" />Back to queue</button>
+          <Link to={`/admin/applications/${selected}`} state={{ returnTo: location.pathname + location.search }} className="ml-auto inline-flex items-center gap-1 text-xs text-ink-faint hover:text-ink">Open as page<ArrowUpRight className="h-3.5 w-3.5" /></Link>
         </div>
-      )}
-
-      {/* Reject Modal */}
-      {modal?.type === 'reject' && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center">
-                <XCircle className="h-5 w-5 text-red-500" />
-              </div>
-              <div>
-                <h3 className="font-serif font-medium text-navy text-lg">Reject Application</h3>
-                <p className="text-gray-400 text-xs">The student will see this reason and can reapply.</p>
-              </div>
-            </div>
-            <div className="mb-4">
-              <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">Reason for rejection <span className="text-red-400">*</span></label>
-              <textarea
-                rows={3} placeholder="e.g. Transcript scan is illegible. Please resubmit a clear copy."
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-navy resize-none"
-                value={comment} onChange={e => setComment(e.target.value)}
-              />
-              {!comment.trim() && <p className="text-xs text-red-400 mt-1">A reason is required.</p>}
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setModal(null)} className="flex-1 h-10 border border-gray-200 rounded-lg text-sm text-gray-500 hover:border-navy transition-colors">Cancel</button>
-              <button onClick={handleReject} disabled={actionLoading || !comment.trim()} className="flex-1 h-10 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50">
-                {actionLoading ? 'Rejecting…' : 'Confirm Reject'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-    </div>
-  )
+        {loaded && !loading && !selectedInView && <p role="status" className="mb-6 flex flex-wrap items-center justify-between gap-3 border-l-2 border-rule-strong bg-paper px-3 py-2 text-xs text-ink-soft">This application isn’t in the current list. Its status may have changed, or a filter is hiding it.<button onClick={() => change({ selected: '' })} className="text-link">Close record</button></p>}
+        <ApplicationRecordView key={selected} id={selected} compact onChange={refresh} />
+      </div> : <div className="flex h-full flex-col justify-center px-6 py-16 sm:px-12 max-w-3xl">
+        <p className="page-kicker">Today’s register</p>
+        <h2 className="display mt-3 text-4xl leading-tight">{loaded ? activeCount ? <>{activeCount} application{activeCount === 1 ? '' : 's'} need{activeCount === 1 ? 's' : ''} a decision.</> : 'Nothing is waiting for a decision.' : 'Loading the register…'}</h2>
+        <dl className="mt-10 grid grid-cols-2 sm:grid-cols-4 border-t border-ink">
+          {[['Waiting for review', stats.pending], ['In review', stats.underReview], ['Ready to issue', (stats.approved || 0) + (stats.issuing || 0)], ['Issued', stats.issued]].map(([label, value]) => <div key={label} className="border-b border-rule py-4 pr-4"><dt className="text-xs text-ink-faint">{label}</dt><dd className="mt-1 font-mono text-2xl text-ink tabular-nums">{loaded ? value || 0 : '–'}</dd></div>)}
+        </dl>
+        <p className="mt-8 text-sm text-ink-soft">Choose an application from the queue. In the list, <kbd>↑</kbd> <kbd>↓</kbd> or <kbd>J</kbd> <kbd>K</kbd> move between records.</p>
+      </div>}
+    </section>
+  </div>
 }
-
-export default AdminDashboard

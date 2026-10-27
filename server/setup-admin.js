@@ -3,15 +3,17 @@
  * Run this once from the server/ folder:
  *   node setup-admin.js
  *
- * This creates a super admin or resets the password if it already exists.
+ * This creates a super admin once; existing accounts are never reset.
  */
 
 const mongoose = require('mongoose');
+const { randomBytes } = require('crypto');
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
-const ADMIN_EMAIL    = 'admin@university.edu';
-const ADMIN_PASSWORD = 'Admin@1234';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@university.edu';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || randomBytes(24).toString('base64url');
+if (Buffer.byteLength(ADMIN_PASSWORD) < 12 || Buffer.byteLength(ADMIN_PASSWORD) > 72) throw new Error('ADMIN_PASSWORD must be between 12 and 72 bytes.');
 const ADMIN_NAME     = 'Super Admin';
 
 async function setup() {
@@ -21,8 +23,7 @@ async function setup() {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('✅  MongoDB connected');
 
-    // Manually hash — bypass the pre-save hook to be certain
-    const hash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+
 
     // Dynamically load model after connection
     const User = require('./src/models/User');
@@ -30,17 +31,14 @@ async function setup() {
     const existing = await User.findOne({ email: ADMIN_EMAIL });
 
     if (existing) {
-      // Reset password and make super_admin
-      existing.passwordHash = hash;
-      existing.role = 'super_admin';
-      existing.isActive = true;
-      await existing.save({ validateBeforeSave: false });
-      console.log('✅  Existing admin found — password reset and role set to super_admin');
+      console.log('Account already exists; setup will not reset its password or change its role.');
+      await mongoose.disconnect();
+      return;
     } else {
       // Create fresh
       await User.create({
         email: ADMIN_EMAIL,
-        passwordHash: hash,
+        passwordHash: ADMIN_PASSWORD,
         fullName: ADMIN_NAME,
         studentId: 'SUPERADMIN-001',
         role: 'super_admin',

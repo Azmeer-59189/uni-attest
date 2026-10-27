@@ -29,12 +29,23 @@ const applicationSchema = new mongoose.Schema({
   },
 status: {
   type: String,
-  enum: ['pending', 'under_review', 'approved', 'rejected', 'issued', 'withdrawn'],
-  default: 'pending'
+  enum: ['draft', 'pending', 'under_review', 'approved', 'issuing', 'rejected', 'issued', 'withdrawn'],
+  default: 'draft'
 },
+  submittedAt: Date,
+  history: [{
+    action: { type: String, required: true },
+    actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    actorName: String,
+    actorRole: String,
+    at: { type: Date, required: true },
+    details: String
+  }],
   reviewedAt: {
     type: Date
   },
+  issuanceToken: String,
+  issuanceLeaseUntil: Date,
   reviewedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -60,6 +71,12 @@ status: {
 
 }, {
   timestamps: true
+});
+
+applicationSchema.index({ student: 1 }, {
+  unique: true,
+  name: 'one_active_application_per_student',
+  partialFilterExpression: { status: { $in: ['draft', 'pending', 'under_review', 'approved', 'issuing'] } }
 });
 
 module.exports = mongoose.model('Application', applicationSchema);

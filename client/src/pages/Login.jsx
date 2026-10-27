@@ -1,7 +1,16 @@
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Eye, EyeOff, GraduationCap, Settings } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
+
+// Return to the page that asked for sign-in, but only if it belongs to the signed-in role's area.
+function destinationFor(user, from) {
+  const home = user.role === 'student' ? '/student/dashboard' : '/admin/dashboard'
+  if (typeof from !== 'string' || !from.startsWith('/') || from.startsWith('//')) return home
+  if (from.startsWith('/admin') && user.role === 'student') return home
+  if (from.startsWith('/student') && user.role !== 'student') return home
+  return from
+}
 
 const Login = () => {
   const [formData, setFormData] = useState({ email: '', password: '' })
@@ -10,6 +19,7 @@ const Login = () => {
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const isAdminLogin = searchParams.get('role') === 'admin'
 
@@ -19,114 +29,70 @@ const Login = () => {
     setLoading(true)
     try {
       const user = await login(formData.email, formData.password)
-      if (user.role === 'admin' || user.role === 'super_admin') {
-        navigate('/admin/dashboard')
-      } else {
-        navigate('/student/dashboard')
-      }
+      navigate(destinationFor(user, location.state?.from), { replace: true })
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed. Check your email and password.')
+      setError(err.response?.data?.error || 'Sign-in failed. Check your email and password.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="max-w-md mx-auto">
-      <div className="bg-white rounded-2xl border border-gray-100 p-8 shadow-sm">
+    <div className="grid lg:grid-cols-[minmax(0,1fr)_28rem] gap-12 lg:gap-20 items-start py-2 sm:py-6">
+      <div className="max-w-md">
+        <p className="page-kicker">{isAdminLogin ? 'Staff sign in' : 'Student sign in'}</p>
+        <h1 className="page-title mt-4">Welcome back.</h1>
+        <p className="mt-5 text-base leading-relaxed text-ink-soft">{isAdminLogin ? 'Sign in with your university staff account to open the review queue.' : 'Sign in to continue your application, follow its review, and download your certificate.'}</p>
+        <p className="mt-8 hidden lg:block text-sm text-ink-faint">{isAdminLogin ? <>Not staff? <Link to="/login" className="text-link">Student sign in</Link></> : <>University staff? <Link to="/login?role=admin" className="text-link">Staff sign in</Link></>}</p>
+      </div>
 
-        {/* Portal indicator */}
-        <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium mb-6 ${
-          isAdminLogin
-            ? 'bg-navy/5 text-navy border border-navy/10'
-            : 'bg-gold/10 text-yellow-700 border border-gold/20'
-        }`}>
-          {isAdminLogin
-            ? <><Settings className="h-3.5 w-3.5" /> Admin Portal</>
-            : <><GraduationCap className="h-3.5 w-3.5" /> Student Portal</>
-          }
-        </div>
-
-        <div className="w-8 h-1 bg-gold rounded mb-5"></div>
-        <h1 className="text-3xl font-serif font-medium text-navy mb-2">Welcome back</h1>
-        <p className="text-gray-400 text-sm mb-8">
-          {isAdminLogin
-            ? 'Sign in with your administrator credentials.'
-            : 'Sign in to your student portal to track your application.'
-          }
-        </p>
-
-        {/* Admin hint */}
-        {isAdminLogin && (
-          <div className="bg-navy/3 border border-navy/10 rounded-xl p-4 mb-6">
-            <p className="text-xs text-gray-500 leading-relaxed">
-              <span className="font-medium text-navy">Default admin credentials:</span><br />
-              Email: <span className="font-mono">admin@university.edu</span><br />
-              Password: <span className="font-mono">admin123</span>
-            </p>
-          </div>
-        )}
-
-        {error && (
-          <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm border border-red-100">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="auth-card w-full">
+        {location.state?.message && <p role="status" className="mb-5 border-l-2 border-emerald-700 bg-emerald-50 p-3 text-sm text-emerald-900">{location.state.message}</p>}
+        {location.state?.from && !location.state?.message && <p className="mb-5 text-sm text-ink-soft">Sign in to continue to that page.</p>}
+        {error && <p role="alert" id="login-error" className="mb-5 border-l-2 border-red-700 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+        <form onSubmit={handleSubmit} className="space-y-5" aria-describedby={error ? 'login-error' : undefined}>
           <div>
-            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">
-              Email address
-            </label>
+            <label htmlFor="login-email" className="field-label mb-1.5">Email address</label>
             <input
-              type="email" required
-              placeholder={isAdminLogin ? 'admin@university.edu' : 'you@university.edu'}
-              className="w-full h-11 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none text-sm"
+              id="login-email" type="email" autoComplete="username" required
+              placeholder={isAdminLogin ? 'name@university.edu' : 'you@university.edu'}
+              aria-invalid={Boolean(error)}
+              className="w-full h-12 px-4 border border-rule-strong rounded-md focus:border-ink text-sm"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">
-              Password
-            </label>
+            <label htmlFor="login-password" className="field-label mb-1.5">Password</label>
             <div className="relative">
               <input
-                type={showPassword ? 'text' : 'password'} required
-                placeholder="Enter your password"
-                className="w-full h-11 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none pr-12 text-sm"
+                id="login-password" autoComplete="current-password" type={showPassword ? 'text' : 'password'} required
+                aria-invalid={Boolean(error)}
+                className="w-full h-12 px-4 border border-rule-strong rounded-md focus:border-ink pr-12 text-sm"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               />
               <button
                 type="button"
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center text-ink-faint hover:text-ink"
+                aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
           </div>
 
-          <button
-            type="submit" disabled={loading}
-            className="w-full h-11 bg-navy text-white rounded-lg hover:bg-navy-light transition-colors disabled:opacity-50 text-sm font-medium mt-2"
-          >
+          <button type="submit" disabled={loading} className="button-primary w-full">
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
 
-        <div className="mt-6 pt-5 border-t border-gray-100 flex items-center justify-between text-sm text-gray-400">
-          {isAdminLogin ? (
-            <Link to="/login" className="hover:text-navy transition-colors">← Student login</Link>
-          ) : (
-            <span>
-              No account?{' '}
-              <Link to="/register" className="text-navy font-medium hover:underline">Register</Link>
-            </span>
-          )}
-          <Link to="/" className="hover:text-navy transition-colors">← Home</Link>
+        <div className="mt-6 pt-5 border-t border-rule flex flex-wrap items-center justify-between gap-3 text-sm text-ink-faint">
+          {isAdminLogin
+            ? <Link to="/login" className="hover:text-ink lg:hidden">Student sign in</Link>
+            : <span>No account? <Link to="/register" className="text-link">Create one</Link></span>}
+          <Link to="/" className="hover:text-ink">Home</Link>
         </div>
       </div>
     </div>

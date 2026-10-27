@@ -1,7 +1,14 @@
+import { apiError } from '../utils/apiError'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Eye, EyeOff } from 'lucide-react'
+
+const departments = [
+  'Computer Science', 'Engineering', 'Business Administration',
+  'Medicine', 'Law', 'Arts', 'Science'
+]
+const inputClass = 'w-full h-12 px-4 border border-rule-strong rounded-md focus:border-ink text-sm'
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -17,11 +24,7 @@ const Register = () => {
   const [loading, setLoading] = useState(false)
   const { register } = useAuth()
   const navigate = useNavigate()
-
-  const departments = [
-    'Computer Science', 'Engineering', 'Business Administration',
-    'Medicine', 'Law', 'Arts', 'Science'
-  ]
+  const field = name => ({ id: `register-${name}`, value: formData[name], onChange: e => setFormData({ ...formData, [name]: e.target.value }) })
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -32,105 +35,76 @@ const Register = () => {
       await register(formData)
       navigate('/student/dashboard')
     } catch (err) {
-      setError(err.response?.data?.error || 'Registration failed.')
+      setError(apiError(err, 'Registration failed.'))
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="max-w-md mx-auto">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-        <div className="w-8 h-1 bg-gold rounded mb-6"></div>
-        <h1 className="text-3xl font-serif font-medium text-navy mb-2">Create account</h1>
-        <p className="text-gray-500 text-sm mb-8">Register with your university details.</p>
+    <div className="grid lg:grid-cols-[minmax(0,1fr)_28rem] gap-12 lg:gap-20 items-start py-2 sm:py-6">
+      <div className="max-w-md">
+        <p className="page-kicker">Student account</p>
+        <h1 className="page-title mt-4">Create your account.</h1>
+        <p className="mt-5 text-base leading-relaxed text-ink-soft">Use the details your university holds for you. You’ll use this account to submit your application, follow its review, and download your certificate.</p>
+        <p className="mt-8 text-sm text-ink-faint">Staff accounts are created by the university’s registrar, not here.</p>
+      </div>
 
-        {error && (
-          <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">
-            {error}
-          </div>
-        )}
+      <div className="auth-card w-full">
+        {error && <p role="alert" id="register-error" className="mb-5 border-l-2 border-red-700 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5" aria-describedby={error ? 'register-error' : undefined}>
           <div>
-            <label className="block text-xs font-medium text-gray-700 uppercase tracking-wider mb-2">Full Name</label>
-            <input
-              type="text"
-              required
-              className="w-full h-12 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none"
-              value={formData.fullName}
-              onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-            />
+            <label htmlFor="register-fullName" className="field-label mb-1.5">Full name</label>
+            <input type="text" required autoComplete="name" className={inputClass} {...field('fullName')} />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 uppercase tracking-wider mb-2">Email</label>
-            <input
-              type="email"
-              required
-              className="w-full h-12 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            />
+            <label htmlFor="register-email" className="field-label mb-1.5">Email</label>
+            <input type="email" required autoComplete="email" className={inputClass} {...field('email')} />
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label htmlFor="register-studentId" className="field-label mb-1.5">Student ID</label>
+              <input type="text" required autoComplete="off" spellCheck={false} className={`${inputClass} font-mono`} {...field('studentId')} />
+            </div>
+            <div>
+              <label htmlFor="register-department" className="field-label mb-1.5">Department</label>
+              <select required className={`${inputClass} bg-white`} {...field('department')}>
+                <option value="">Select…</option>
+                {departments.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 uppercase tracking-wider mb-2">Student ID</label>
-            <input
-              type="text"
-              required
-              className="w-full h-12 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none"
-              value={formData.studentId}
-              onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 uppercase tracking-wider mb-2">Department</label>
-            <select
-              required
-              className="w-full h-12 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none bg-white"
-              value={formData.department}
-              onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-            >
-              <option value="">Select Department</option>
-              {departments.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 uppercase tracking-wider mb-2">Password</label>
+            <label htmlFor="register-password" className="field-label mb-1.5">Password</label>
             <div className="relative">
               <input
-                type={showPassword ? 'text' : 'password'}
-                required
-                minLength={6}
-                className="w-full h-12 px-4 border border-gray-200 rounded-lg focus:border-navy focus:outline-none pr-12"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                type={showPassword ? 'text' : 'password'} required autoComplete="new-password"
+                minLength={12} maxLength={72} aria-describedby="register-password-hint"
+                className={`${inputClass} pr-12`} {...field('password')}
               />
               <button
                 type="button"
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center text-ink-faint hover:text-ink"
+                aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword}
                 onClick={() => setShowPassword(!showPassword)}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
+            <p id="register-password-hint" className="mt-1.5 text-xs text-ink-faint">At least 12 characters.</p>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full h-12 bg-navy text-white rounded-lg hover:bg-navy-light transition-colors disabled:opacity-50"
-          >
-            {loading ? 'Creating account...' : 'Create Account'}
+          <button type="submit" disabled={loading} className="button-primary w-full">
+            {loading ? 'Creating account…' : 'Create account'}
           </button>
         </form>
 
-        <p className="text-center mt-6 text-sm text-gray-500">
-          Already have an account?{' '}
-          <Link to="/login" className="text-navy hover:underline font-medium">Sign in</Link>
+        <p className="mt-6 pt-5 border-t border-rule text-sm text-ink-faint">
+          Already have an account? <Link to="/login" className="text-link">Sign in</Link>
         </p>
       </div>
     </div>

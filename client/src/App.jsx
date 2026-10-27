@@ -1,6 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
-import Navbar from './components/Navbar'
+import AppLayout from './components/AppLayout'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -10,20 +10,22 @@ import AdminDashboard from './pages/admin/Dashboard'
 import AdminManagement from './pages/admin/AdminManagement'
 import VerifyDegree from './pages/VerifyDegree'
 import ProtectedRoute from './components/ProtectedRoute'
+import Account from './pages/Account'
+import ApplicationDetail from './pages/ApplicationDetail'
 
 function App() {
   return (
     <AuthProvider>
-      <div className="min-h-screen bg-off">
-        <Navbar />
-        <main className="container mx-auto px-4 py-8">
+      <AppLayout>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/account" element={<ProtectedRoute allowedRoles={['student', 'admin', 'super_admin']}><Account /></ProtectedRoute>} />
             <Route path="/verify/:hash?" element={<VerifyDegree />} />
 
             {/* Student routes */}
+            <Route path="/student/applications/:id" element={<ProtectedRoute allowedRoles={['student']}><ApplicationDetail /></ProtectedRoute>} />
             <Route path="/student/dashboard" element={
               <ProtectedRoute allowedRoles={['student']}>
                 <StudentDashboard />
@@ -36,6 +38,7 @@ function App() {
             } />
 
             {/* Admin routes */}
+            <Route path="/admin/applications/:id" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><ApplicationDetail /></ProtectedRoute>} />
             <Route path="/admin/dashboard" element={
               <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
                 <AdminDashboard />
@@ -49,8 +52,7 @@ function App() {
               </ProtectedRoute>
             } />
           </Routes>
-        </main>
-      </div>
+      </AppLayout>
     </AuthProvider>
   )
 }

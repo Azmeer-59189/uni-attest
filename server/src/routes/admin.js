@@ -30,7 +30,11 @@ router.get('/degrees', adminController.getDegrees);
 
 // ── Super admin only routes ──
 router.get('/admins', authorize('super_admin'), adminController.getAdmins);
-router.post('/admins', authorize('super_admin'), adminController.createAdmin);
+router.post('/admins', authorize('super_admin'), [
+  body('email').isEmail().normalizeEmail(),
+  body('fullName').isString().trim().notEmpty(),
+  body('password').isString().isLength({ min: 12, max: 72 }).custom(value => Buffer.byteLength(value) <= 72)
+], adminController.createAdmin);
 router.patch('/admins/:id/toggle', authorize('super_admin'), adminController.toggleAdmin);
 
 module.exports = router;
