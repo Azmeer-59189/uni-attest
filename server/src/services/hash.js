@@ -9,6 +9,13 @@ class HashService {
       program: (degreeData.program || degreeData.programName || '').toLowerCase().trim(),
       department: (degreeData.department || '').toLowerCase().trim(),
       graduationYear: degreeData.graduationYear || degreeData.graduation_year,
+      // Attestation fields. Absent on certificates issued before the staged workflow, which keeps their hashes valid.
+      fatherName: degreeData.fatherName ? degreeData.fatherName.toLowerCase().trim() : undefined,
+      cnic: degreeData.cnic ? degreeData.cnic.trim() : undefined,
+      registrationNumber: degreeData.registrationNumber ? degreeData.registrationNumber.toUpperCase().trim() : undefined,
+      session: degreeData.session ? degreeData.session.trim() : undefined,
+      requestType: degreeData.requestType || undefined,
+      attestationNumber: degreeData.attestationNumber || undefined,
       cgpa: degreeData.cgpa !== undefined && degreeData.cgpa !== null && degreeData.cgpa !== '' ? parseFloat(degreeData.cgpa).toFixed(2) : null,
       university: degreeData.university || process.env.UNIVERSITY_NAME || 'University',
       issuedAt: degreeData.issuedAt ? new Date(degreeData.issuedAt).toISOString() : new Date().toISOString()

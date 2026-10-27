@@ -2,22 +2,24 @@ const nodemailer = require('nodemailer');
 const notify = require('../src/services/notify');
 
 const student = { email: 'student@example.com', fullName: 'Test Student' };
-const application = { _id: 'app123', programName: 'BS Computing', graduationYear: 2026, student };
+const application = { _id: 'app123', applicationNumber: 'UA-2026-000007', programName: 'BS Computing', graduationYear: 2026, student };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 beforeAll(() => { process.env.CLIENT_URL = 'https://attest.example/'; process.env.UNIVERSITY_NAME = 'Test University'; });
 afterEach(() => notify._setTransport(undefined));
 
-test('each status email links to the right page and names the program', () => {
-  const degree = { hash: '0xabc' };
+test('each status email links to the right page and names the request', () => {
+  const degree = { hash: '0xabc', attestationNumber: 'ATT-2026-000007' };
   const cases = [
     ['submitted', /received/, 'https://attest.example/student/applications/app123'],
-    ['approved', /approved/, 'https://attest.example/student/applications/app123'],
-    ['rejected', /needs attention/, 'https://attest.example/student/applications/app123'],
-    ['issued', /certificate is ready/, 'https://attest.example/verify/0xabc']
+    ['resubmitted', /Corrections received/, 'https://attest.example/student/applications/app123'],
+    ['objection', /Action needed/, 'https://attest.example/student/applications/app123'],
+    ['rejected', /not approved/, 'https://attest.example/student/applications/app123'],
+    ['issued', /attestation is ready/, 'https://attest.example/verify/0xabc']
   ];
   for (const [event, subject, link] of cases) {
-    const mail = notify.compose(event, { application: { ...application, rejectionReason: 'Missing stamp' }, degree }, student);
+    const mail = notify.compose(event, { application: { ...application, rejectionReason: 'Missing stamp', objection: { reason: 'Transcript unclear' } }, degree }, student);
+    expect(mail.subject).toContain('UA-2026-000007');
     expect(mail.to).toBe('student@example.com');
     expect(mail.subject).toMatch(subject);
     expect(mail.subject).toContain('BS Computing');
@@ -41,11 +43,11 @@ test('the verification hash is shown in monospace in HTML and plainly in text', 
   expect(mail.html).toMatch(/<code style="font-family:Consolas[^"]*">0xabc&lt;def<\/code>/);
 });
 
-test('the default approval note is not repeated back to the student', () => {
-  const plain = notify.compose('approved', { application: { ...application, adminComments: 'Application approved' } }, student);
-  const noted = notify.compose('approved', { application: { ...application, adminComments: 'Welcome aboard' } }, student);
-  expect(plain.text).not.toContain('Reviewer’s note');
-  expect(noted.text).toContain('Reviewer’s note: Welcome aboard');
+test('objection email tells the student what to correct, and the issued email gives the attestation number', () => {
+  const objection = notify.compose('objection', { application: { ...application, objection: { reason: 'Upload a clearer transcript' } } }, student);
+  expect(objection.text).toContain('What needs correcting: Upload a clearer transcript');
+  const issued = notify.compose('issued', { application, degree: { hash: '0xabc', attestationNumber: 'ATT-2026-000007' } }, student);
+  expect(issued.text).toContain('Attestation number: ATT-2026-000007');
 });
 
 test('sends through the configured transport without the caller awaiting it', async () => {
@@ -60,7 +62,7 @@ test('sends through the configured transport without the caller awaiting it', as
 
 test('a mail failure is logged, never thrown into the request', async () => {
   notify._setTransport({ sendMail: () => Promise.reject(new Error('SMTP down')) });
-  expect(() => notify.notify('approved', { application })).not.toThrow();
+  expect(() => notify.notify('submitted', { application })).not.toThrow();
   await flush();
 });
 

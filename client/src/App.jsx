@@ -13,6 +13,8 @@ import VerifyDegree from './pages/VerifyDegree'
 import ProtectedRoute from './components/ProtectedRoute'
 import Account from './pages/Account'
 import ApplicationDetail from './pages/ApplicationDetail'
+import Challan from './pages/student/Challan'
+import { STAFF_ROLES } from './utils/workflow'
 
 function App() {
   return (
@@ -24,11 +26,12 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/account" element={<ProtectedRoute allowedRoles={['student', 'admin', 'super_admin']}><Account /></ProtectedRoute>} />
+            <Route path="/account" element={<ProtectedRoute allowedRoles={['student', ...STAFF_ROLES]}><Account /></ProtectedRoute>} />
             <Route path="/verify/:hash?" element={<VerifyDegree />} />
 
             {/* Student routes */}
             <Route path="/student/applications/:id" element={<ProtectedRoute allowedRoles={['student']}><ApplicationDetail /></ProtectedRoute>} />
+            <Route path="/student/applications/:id/challan" element={<ProtectedRoute allowedRoles={['student']}><Challan /></ProtectedRoute>} />
             <Route path="/student/dashboard" element={
               <ProtectedRoute allowedRoles={['student']}>
                 <StudentDashboard />
@@ -41,9 +44,9 @@ function App() {
             } />
 
             {/* Admin routes */}
-            <Route path="/admin/applications/:id" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><ApplicationDetail /></ProtectedRoute>} />
+            <Route path="/admin/applications/:id" element={<ProtectedRoute allowedRoles={STAFF_ROLES}><ApplicationDetail /></ProtectedRoute>} />
             <Route path="/admin/dashboard" element={
-              <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+              <ProtectedRoute allowedRoles={STAFF_ROLES}>
                 <AdminDashboard />
               </ProtectedRoute>
             } />

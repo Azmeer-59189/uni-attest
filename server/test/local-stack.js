@@ -35,7 +35,7 @@ async function main() {
       { fullName: 'Local Test Student', studentId: 'LOCAL-1', email: 'local-student@example.com', passwordHash: 'Isolated-test-password' },
       { fullName: 'Local Test Admin', email: 'local-admin@example.com', role: 'admin', passwordHash: 'Isolated-test-password' }
     ]);
-    const application = await Application.create({ student: student._id, programName: 'BS Computing', department: 'Computing', graduationYear: 2026, status: 'approved' });
+    const application = await Application.create({ student: student._id, programName: 'BS Computing', department: 'Computing', graduationYear: 2026, applicationNumber: 'UA-2026-900001', status: 'registrar_approval' });
     const document = await Document.create({ application: application._id, fileName: 'local-test-fixture.pdf', fileType: 'application/pdf' });
     application.documents.push(document._id);
     await application.save();

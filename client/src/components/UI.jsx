@@ -5,15 +5,17 @@ export function PageHeader({ eyebrow, title, description, actions }) {
   </header>
 }
 
-const progressSteps = ['Submitted', 'In review', 'Approved', 'Issued']
-const progressIndex = { draft: -1, pending: 0, under_review: 1, approved: 2, issuing: 2, issued: 3 }
+const progressSteps = ['Submitted', 'Document scrutiny', 'Records verification', 'Registrar approval', 'Attested']
+const progressIndex = { scrutiny: 1, records_verification: 2, registrar_approval: 3, issuing: 3, issued: 5 }
 
-export function ApplicationProgress({ status, className = '' }) {
-  const current = progressIndex[status]
+// Where a request is in the attestation process. An objection pauses it at the stage that raised it.
+export function ApplicationProgress({ status, objectionStage, className = '' }) {
+  const paused = status === 'objection'
+  const current = paused ? progressIndex[objectionStage] ?? 1 : progressIndex[status]
   if (current == null) return null
-  return <ol aria-label="Application progress" className={`progress-strip ${className}`}>{progressSteps.map((label, index) => {
-    const state = status === 'issued' || index < current ? 'done' : index === current ? 'current' : 'next'
-    return <li key={label} data-state={state} aria-current={state === 'current' ? 'step' : undefined}><span>0{index + 1}</span>{label}<span className="sr-only">{state === 'done' ? ' (complete)' : state === 'current' ? ' (current step)' : ''}</span></li>
+  return <ol aria-label="Request progress" className={`progress-strip ${className}`} style={{ '--steps': progressSteps.length }}>{progressSteps.map((label, index) => {
+    const state = index < current ? 'done' : index === current ? paused ? 'paused' : 'current' : 'next'
+    return <li key={label} data-state={state} aria-current={state === 'current' || state === 'paused' ? 'step' : undefined}><span>0{index + 1}</span>{label}<span className="sr-only">{state === 'done' ? ' (complete)' : state === 'current' ? ' (current step)' : state === 'paused' ? ' (paused: objection raised)' : ''}</span></li>
   })}</ol>
 }
 

@@ -7,7 +7,8 @@ const User = require('../models/User');
 const { authenticate } = require('../middleware/auth');
 const router = express.Router();
 const root = path.join(__dirname, '../../uploads');
-const allowed = (user, owner) => ['admin', 'super_admin'].includes(user.role) || String(user._id) === String(owner);
+const { isStaff } = require('../services/workflow');
+const allowed = (user, owner) => isStaff(user) || String(user._id) === String(owner);
 router.use(authenticate);
 router.get('/documents/:id', async (req, res, next) => {
   try {

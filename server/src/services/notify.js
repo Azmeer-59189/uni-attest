@@ -21,38 +21,50 @@ const university = () => process.env.UNIVERSITY_NAME || 'the university';
 
 // Each template returns a subject, paragraphs, and one call to action. Paragraphs are plain text and escaped on render;
 // a { label, code } paragraph shows an identifier in monospace so long hashes stay legible.
+const label = application => `${application.applicationNumber ? `${application.applicationNumber} · ` : ''}${application.programName}`;
+const requestLink = application => `${clientUrl()}/student/applications/${application._id}`;
+
 const templates = {
   submitted: ({ application }) => ({
-    subject: `We received your application: ${application.programName}`,
+    subject: `Request received: ${label(application)}`,
     paragraphs: [
-      `Your application for ${application.programName} (${application.graduationYear}) has been submitted to ${university()} for review.`,
-      'You don’t need to do anything else for now. We’ll email you when a decision is made.'
+      `Your attestation request for ${application.programName} (${application.graduationYear}) has been received by ${university()}.`,
+      'It now goes through document scrutiny, verification against university records, and registrar approval. If anything needs correcting, we’ll email you.'
     ],
-    action: ['Follow your application', `${clientUrl()}/student/applications/${application._id}`]
+    action: ['Track your request', requestLink(application)]
   }),
-  approved: ({ application }) => ({
-    subject: `Your application was approved: ${application.programName}`,
+  resubmitted: ({ application }) => ({
+    subject: `Corrections received: ${label(application)}`,
     paragraphs: [
-      `Good news: ${university()} has approved your application for ${application.programName}.`,
-      application.adminComments && application.adminComments !== 'Application approved' ? `Reviewer’s note: ${application.adminComments}` : null,
-      'Your certificate will be issued next. We’ll email you as soon as it is ready.'
+      'Thank you for answering the objection. Your corrected request is back in document scrutiny.',
+      'We’ll email you when it is attested, or if anything else is needed.'
     ],
-    action: ['View your application', `${clientUrl()}/student/applications/${application._id}`]
+    action: ['Track your request', requestLink(application)]
+  }),
+  objection: ({ application }) => ({
+    subject: `Action needed on your request: ${label(application)}`,
+    paragraphs: [
+      `${university()} has raised an objection on your attestation request. It is paused until you respond.`,
+      `What needs correcting: ${application.objection?.reason}`,
+      'Open your request, make the correction or upload the requested documents, then resubmit it.'
+    ],
+    action: ['Correct and resubmit', requestLink(application)]
   }),
   rejected: ({ application }) => ({
-    subject: `Your application needs attention: ${application.programName}`,
+    subject: `Your request was not approved: ${label(application)}`,
     paragraphs: [
-      `${university()} could not approve your application for ${application.programName}.`,
+      `${university()} could not attest your request for ${application.programName}.`,
       `Reason: ${application.rejectionReason}`,
-      'You can start a new application once you have addressed this.'
+      'If you believe this is a mistake, contact the registrar’s office and quote your application number.'
     ],
-    action: ['Read the full feedback', `${clientUrl()}/student/applications/${application._id}`]
+    action: ['View the decision', requestLink(application)]
   }),
   issued: ({ application, degree }) => ({
-    subject: `Your certificate is ready: ${application.programName}`,
+    subject: `Your attestation is ready: ${label(application)}`,
     paragraphs: [
-      `Your attested certificate for ${application.programName} has been issued by ${university()}.`,
-      'Anyone can confirm it is genuine using its public verification page, so you can share that link with employers or institutions.',
+      `Your ${application.programName} has been attested by ${university()}.`,
+      'Download the attestation certificate from your account. Anyone can confirm it is genuine on the public verification page, so you can share that link with employers or institutions.',
+      degree.attestationNumber ? { label: 'Attestation number', code: degree.attestationNumber } : null,
       { label: 'Verification hash', code: degree.hash }
     ],
     action: ['Open the verification page', `${clientUrl()}/verify/${degree.hash}`]

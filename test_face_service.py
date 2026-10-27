@@ -31,6 +31,14 @@ class FaceValidationTests(unittest.TestCase):
         self.assertTrue(self.service.detect_face('image.jpg')[0])
         self.assertTrue(self.service.DeepFace.extract_faces.call_args.kwargs['enforce_detection'])
 
+    def test_id_photo_with_several_faces_compares_the_largest(self):
+        faces = [{'facial_area': {'x': 0, 'y': 0, 'w': 10, 'h': 10}}, {'facial_area': {'x': 50, 'y': 50, 'w': 80, 'h': 90}}]
+        self.service.DeepFace.extract_faces.return_value = faces
+        with patch.object(self.service, 'crop_largest_face', return_value='largest.jpg') as crop:
+            self.assertEqual(self.service.detect_face('id.jpg', use_largest=True), (True, 'largest.jpg'))
+        crop.assert_called_once_with('id.jpg', faces)
+        self.assertFalse(self.service.detect_face('selfie.jpg')[0])
+
     def test_detection_failure_is_rejected(self):
         with patch.object(self.service.DeepFace, 'extract_faces', side_effect=ValueError('No face')):
             self.assertFalse(self.service.detect_face('image.jpg')[0])

@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['student', 'admin', 'super_admin'],
+    enum: ['student', ...require('../services/workflow').STAFF_ROLES],
     default: 'student'
   },
   fullName: {
@@ -29,6 +29,9 @@ const userSchema = new mongoose.Schema({
     sparse: true,
     trim: true
   },
+  fatherName: { type: String, trim: true },
+  // Pakistani CNIC as 00000-0000000-0. Prefills each new attestation request.
+  cnic: { type: String, trim: true, unique: true, sparse: true },
   department: {
     type: String,
     trim: true

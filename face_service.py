@@ -1,5 +1,10 @@
 import os
+import sys
 os.environ['DEEPFACE_HOME'] = os.path.expanduser('~')
+# DeepFace logs emoji; a Windows console's default encoding would crash on them, e.g. while downloading model weights.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, 'reconfigure'):
+        stream.reconfigure(encoding='utf-8', errors='replace')
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -33,12 +38,34 @@ def save_uploaded_file(file, suffix=".jpg"):
     tmp.close()
     return tmp.name
 
-def detect_face(image_path):
-    """Require one actual face; a person bounding box is not face detection."""
+# RetinaFace finds and aligns small, low-contrast faces such as ID card portraits far more reliably than OpenCV.
+DETECTOR = "retinaface"
+
+def crop_largest_face(image_path, faces):
+    """Write the largest detected face, with a margin, to a temp file so later steps ignore smaller faces."""
+    image = cv2.imread(image_path)
+    area = max((face["facial_area"] for face in faces), key=lambda box: box["w"] * box["h"])
+    margin_x, margin_y = int(area["w"] * 0.4), int(area["h"] * 0.4)
+    top, left = max(area["y"] - margin_y, 0), max(area["x"] - margin_x, 0)
+    crop = image[top:area["y"] + area["h"] + margin_y, left:area["x"] + area["w"] + margin_x]
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+    tmp.close()
+    cv2.imwrite(tmp.name, crop)
+    return tmp.name
+
+def detect_face(image_path, use_largest=False):
+    """Require one actual face. With use_largest, an image may contain more faces (an ID card's
+    secondary "ghost" portrait) and only the largest is returned for comparison."""
     try:
-        faces = DeepFace.extract_faces(img_path=image_path, detector_backend="opencv", enforce_detection=True)
+        faces = DeepFace.extract_faces(img_path=image_path, detector_backend=DETECTOR, enforce_detection=True)
+        if use_largest and len(faces) > 1:
+            print(f"Face check: found {len(faces)} faces on the ID photo, comparing the largest")
+            return True, crop_largest_face(image_path, faces)
+        if len(faces) != 1:
+            print(f"Face check: found {len(faces)} faces, expected exactly one")
         return len(faces) == 1, image_path
-    except (ValueError, RuntimeError):
+    except (ValueError, RuntimeError) as e:
+        print(f"Face check: no face detected ({e})")
         return False, None
 
 def verify_faces(id_photo_path, selfie_path):
@@ -61,13 +88,14 @@ def verify_faces(id_photo_path, selfie_path):
             img1_path=id_photo_path,
             img2_path=selfie_path,
             model_name="Facenet",
-            detector_backend="opencv",
+            detector_backend=DETECTOR,
             enforce_detection=True,
             distance_metric="cosine"
         )
 
         distance = result["distance"]
         threshold = result["threshold"]
+        print(f"Face comparison: distance {distance:.4f}, match limit {threshold:.4f}")
 
         # Use a slightly relaxed threshold for ID cards
         adjusted_threshold = threshold
@@ -119,13 +147,13 @@ def verify_face():
             selfie_path = save_base64_image(data["selfie"])
 
         # Step 1 — face detection on both images
-        id_face_found, cropped_id_path = detect_face(id_photo_path)
+        id_face_found, cropped_id_path = detect_face(id_photo_path, use_largest=True)
         selfie_face_found, cropped_selfie_path = detect_face(selfie_path)
 
         if not id_face_found:
             return jsonify({
                 "match": False,
-                "error": "Upload an ID photo with exactly one clearly visible face."
+                "error": "Upload an ID photo where your face is clearly visible."
             }), 400
 
         if not selfie_face_found:

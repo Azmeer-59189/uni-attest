@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Eye, EyeOff } from 'lucide-react'
+import { formatCnic } from '../utils/workflow'
 
 const departments = [
   'Computer Science', 'Engineering', 'Business Administration',
@@ -15,6 +16,8 @@ const Register = () => {
     email: '',
     password: '',
     fullName: '',
+    fatherName: '',
+    cnic: '',
     studentId: '',
     department: '',
     phone: ''
@@ -24,7 +27,7 @@ const Register = () => {
   const [loading, setLoading] = useState(false)
   const { register } = useAuth()
   const navigate = useNavigate()
-  const field = name => ({ id: `register-${name}`, value: formData[name], onChange: e => setFormData({ ...formData, [name]: e.target.value }) })
+  const field = name => ({ id: `register-${name}`, value: formData[name], onChange: e => setFormData({ ...formData, [name]: name === 'cnic' ? formatCnic(e.target.value) : e.target.value }) })
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -46,7 +49,7 @@ const Register = () => {
       <div className="max-w-md">
         <p className="page-kicker">Student account</p>
         <h1 className="page-title mt-4">Create your account.</h1>
-        <p className="mt-5 text-base leading-relaxed text-ink-soft">Use the details your university holds for you. You’ll use this account to submit your application, follow its review, and download your certificate.</p>
+        <p className="mt-5 text-base leading-relaxed text-ink-soft">Use your name exactly as it appears on your degree, and the registration number the university gave you. You’ll use this account to request attestation, follow each stage of the review, and download your certificate.</p>
         <p className="mt-8 text-sm text-ink-faint">Staff accounts are created by the university’s registrar, not here.</p>
       </div>
 
@@ -55,8 +58,19 @@ const Register = () => {
 
         <form onSubmit={handleSubmit} className="space-y-5" aria-describedby={error ? 'register-error' : undefined}>
           <div>
-            <label htmlFor="register-fullName" className="field-label mb-1.5">Full name</label>
+            <label htmlFor="register-fullName" className="field-label mb-1.5">Full name <span className="font-normal text-ink-faint">(as on your degree)</span></label>
             <input type="text" required autoComplete="name" className={inputClass} {...field('fullName')} />
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label htmlFor="register-fatherName" className="field-label mb-1.5">Father’s name</label>
+              <input type="text" required autoComplete="off" maxLength={100} className={inputClass} {...field('fatherName')} />
+            </div>
+            <div>
+              <label htmlFor="register-cnic" className="field-label mb-1.5">CNIC</label>
+              <input type="text" required inputMode="numeric" placeholder="00000-0000000-0" pattern="\d{5}-\d{7}-\d" title="00000-0000000-0" className={`${inputClass} font-mono`} {...field('cnic')} />
+            </div>
           </div>
 
           <div>
@@ -66,7 +80,7 @@ const Register = () => {
 
           <div className="grid gap-5 sm:grid-cols-2">
             <div>
-              <label htmlFor="register-studentId" className="field-label mb-1.5">Student ID</label>
+              <label htmlFor="register-studentId" className="field-label mb-1.5">Registration no.</label>
               <input type="text" required autoComplete="off" spellCheck={false} className={`${inputClass} font-mono`} {...field('studentId')} />
             </div>
             <div>

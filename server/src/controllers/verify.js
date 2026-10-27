@@ -2,15 +2,19 @@ const Degree = require('../models/Degree');
 const blockchainService = require('../services/blockchain');
 const { checkIntegrity } = require('../services/integrity');
 
+// Public pages show only enough of the CNIC to compare against the holder's card.
+const maskCnic = cnic => typeof cnic === 'string' && cnic.length >= 4 ? `${cnic.slice(0, -5).replace(/\d/g, '•')}${cnic.slice(-5)}` : undefined;
+
 exports.verifyByHash = async (req, res, next) => {
   try {
     const input = (req.params.hash || '').trim();
-    if (!/^(0x)?[a-fA-F0-9]{64}$/.test(input)) return res.status(400).json({ verified: false, error: 'A valid degree or transaction hash is required.' });
+    const attestationNumber = /^ATT-\d{4}-\d{6}$/i.test(input) ? input.toUpperCase() : null;
+    if (!attestationNumber && !/^(0x)?[a-fA-F0-9]{64}$/.test(input)) return res.status(400).json({ verified: false, error: 'Enter an attestation number (ATT-2026-000123) or a 64-character verification hash.' });
     const hash = input.replace(/^0x/, '').toLowerCase();
-    const degree = await Degree.findOne({ $or: [
+    const degree = await Degree.findOne(attestationNumber ? { attestationNumber, issuanceStatus: 'issued' } : { $or: [
       { hash }, { hash: `0x${hash}` }, { blockchainTx: hash }, { blockchainTx: `0x${hash}` }
     ] });
-    if (!degree) return res.status(404).json({ verified: false, error: 'No degree found with this hash.' });
+    if (!degree) return res.status(404).json({ verified: false, error: attestationNumber ? 'No attestation was issued with this number.' : 'No degree found with this hash.' });
     const integrity = checkIntegrity(degree);
     const localChain = degree.blockchainNetwork === 'hardhat_local';
     const networkLabel = localChain ? 'Local test blockchain' : 'Polygon Amoy';
@@ -33,7 +37,7 @@ exports.verifyByHash = async (req, res, next) => {
       status: !integrity.verified ? integrity.status : requiresChain && !chain.verified ? 'blockchain_unverified' : 'verified',
       error: !integrity.verified ? integrity.error : requiresChain && !chain.verified ? (chain.error || `The degree hash was not found on ${networkLabel}.`) : null,
       degree: {
-        ...snapshot, hash: degree.hash, blockchainTx: degree.blockchainTx,
+        ...snapshot, cnic: maskCnic(snapshot.cnic), hash: degree.hash, blockchainTx: degree.blockchainTx,
         blockchainVerification: chain,
         blockchainNetwork: degree.blockchainNetwork,
         blockchainNetworkLabel: networkLabel,

@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Eye, EyeOff } from 'lucide-react'
+import { homeFor } from '../utils/workflow'
 
 // Return to the page that asked for sign-in, but only if it belongs to the signed-in role's area.
 function destinationFor(user, from) {
-  const home = user.role === 'student' ? '/student/dashboard' : '/admin/dashboard'
+  const home = homeFor(user)
   if (typeof from !== 'string' || !from.startsWith('/') || from.startsWith('//')) return home
   if (from.startsWith('/admin') && user.role === 'student') return home
   if (from.startsWith('/student') && user.role !== 'student') return home

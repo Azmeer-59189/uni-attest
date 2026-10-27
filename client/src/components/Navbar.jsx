@@ -2,18 +2,19 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { staffRoleLabels } from '../utils/workflow'
 
 export function navigationFor(user) {
   if (!user) return [{ to: '/verify', label: 'Verify a degree' }]
   if (user.role === 'student') return [
     { to: '/student/dashboard', label: 'Overview', match: /^\/student\/(dashboard|applications\/)/ },
-    { to: '/student/apply', label: 'Application' },
+    { to: '/student/apply', label: 'Request' },
     { to: '/verify', label: 'Verify' },
     { to: '/account', label: 'Account' }
   ]
   return [
     { to: '/admin/dashboard', label: 'Queue', match: /^\/admin\/(dashboard|applications\/)/ },
-    ...(user.role === 'super_admin' ? [{ to: '/admin/manage-admins', label: 'Admins' }] : []),
+    ...(user.role === 'super_admin' ? [{ to: '/admin/manage-admins', label: 'Staff' }] : []),
     { to: '/verify', label: 'Verify' },
     { to: '/account', label: 'Account' }
   ]
@@ -39,7 +40,7 @@ export default function Navbar() {
 
   return <header className="topbar">
     <div className={`mx-auto flex h-14 items-center justify-between gap-6 px-4 sm:px-8 ${staff ? '' : 'max-w-6xl'}`}>
-      <Link to="/" className="flex items-baseline gap-3 shrink-0"><span className="font-serif text-[1.375rem] leading-none text-ink">UniAttest</span><span className="hidden sm:inline text-[11px] uppercase tracking-[0.16em] text-ink-faint">{staff ? 'Registrar' : user ? 'Student record' : 'Degree attestation'}</span></Link>
+      <Link to="/" className="flex items-baseline gap-3 shrink-0"><span className="font-serif text-[1.375rem] leading-none text-ink">UniAttest</span><span className="hidden sm:inline text-[11px] uppercase tracking-[0.16em] text-ink-faint">{staff ? staffRoleLabels[user.role] : user ? 'Student record' : 'Degree attestation'}</span></Link>
       <nav aria-label="Main navigation" className="hidden md:flex items-center gap-7 h-full">
         {links.map(link => <Link key={link.to} to={link.to} className="topbar-link h-full" aria-current={current(link) ? 'page' : undefined}>{link.label}</Link>)}
       </nav>
@@ -49,14 +50,14 @@ export default function Navbar() {
           <button onClick={signOut} className="topbar-link">Sign out</button>
         </> : <>
           <Link to="/login" className="topbar-link" aria-current={pathname === '/login' ? 'page' : undefined}>Sign in</Link>
-          <Link to="/register" className="button-primary !min-h-9 !px-4 !py-1.5 !text-[13px]">Start an application</Link>
+          <Link to="/register" className="button-primary !min-h-9 !px-4 !py-1.5 !text-[13px]">Apply for attestation</Link>
         </>}
       </div>
       <button className="md:hidden -mr-2 flex h-11 w-11 items-center justify-center text-ink" aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open} aria-controls="mobile-menu" onClick={() => setOpen(value => !value)}>{open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
     </div>
     {open && <nav id="mobile-menu" aria-label="Main navigation" className="topbar-menu md:hidden border-t border-rule px-4 pb-4">
       {links.map(link => <Link key={link.to} to={link.to} aria-current={current(link) ? 'page' : undefined}>{link.label}</Link>)}
-      {user ? <button onClick={signOut}>Sign out <span className="ml-auto text-xs text-ink-faint">{user.fullName}</span></button> : <><Link to="/login">Sign in</Link><Link to="/register">Start an application</Link></>}
+      {user ? <button onClick={signOut}>Sign out <span className="ml-auto text-xs text-ink-faint">{user.fullName}</span></button> : <><Link to="/login">Sign in</Link><Link to="/register">Apply for attestation</Link></>}
     </nav>}
   </header>
 }

@@ -31,6 +31,8 @@ const formatUser = (user) => ({
   fullName: user.fullName,
   role: user.role,
   studentId: user.studentId,
+  fatherName: user.fatherName,
+  cnic: user.cnic,
   department: user.department,
   phone: user.phone,
   isActive: user.isActive
@@ -43,19 +45,18 @@ exports.register = async (req, res, next) => {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, password, fullName, studentId, department, phone } = req.body;
+    const { email, password, fullName, studentId, fatherName, cnic, department, phone } = req.body;
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
       return res.status(409).json({ error: 'Email already registered.' });
     }
 
-    // Check student ID uniqueness if provided
-    if (studentId) {
-      const existingId = await User.findOne({ studentId });
-      if (existingId) {
-        return res.status(409).json({ error: 'Student ID already registered.' });
-      }
+    if (studentId && await User.exists({ studentId })) {
+      return res.status(409).json({ error: 'This registration number already has an account.' });
+    }
+    if (await User.exists({ cnic })) {
+      return res.status(409).json({ error: 'This CNIC already has an account. Sign in, or reset your password.' });
     }
 
     const user = new User({
@@ -63,6 +64,8 @@ exports.register = async (req, res, next) => {
       passwordHash: password,
       fullName,
       studentId: studentId || undefined,
+      fatherName,
+      cnic,
       department,
       phone,
       role: 'student' // ✅ always student — admins created separately

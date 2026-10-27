@@ -1,284 +1,329 @@
-import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, Navigate } from 'react-router-dom'
+import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle, Printer, Upload } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import FaceVerification from '../../components/FaceVerification'
 import ConfirmationDialog from '../../components/ConfirmationDialog'
+import { ReviewMark } from '../../components/ApplicationRecord'
 import { apiError } from '../../utils/apiError'
-import { Upload, ArrowLeft, CheckCircle, Clock, FileText, AlertCircle, Scan } from 'lucide-react'
+import { EDITABLE_STATUSES, OPEN_STATUSES, formatCnic, formatPKR, requiredDocuments, useConfig } from '../../utils/workflow'
 
-const departments = ['Computer Science', 'Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Business Administration', 'Mathematics', 'Physics', 'Medicine', 'Law', 'Other']
-const labels = { draft: 'Draft', pending: 'Waiting for review', under_review: 'Under review', approved: 'Approved', issuing: 'Issuance in progress', issued: 'Issued', rejected: 'Rejected', withdrawn: 'Withdrawn' }
-const activeStatuses = ['draft', 'pending', 'under_review', 'approved', 'issuing']
-
-const OCRUploader = ({ onFieldsExtracted, api }) => {
-  const fileRef = useRef(null)
-  const [file, setFile] = useState(null)
-  const [dragOver, setDragOver] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState(null)
-  const [error, setError] = useState('')
-
-  const handleFile = (f) => {
-    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf']
-    if (f.size > 10 * 1024 * 1024) { setError('Files must be 10MB or smaller.'); return }
-    if (!allowed.includes(f.type)) { setError('Please upload a JPG, PNG, WEBP, or PDF file.'); return }
-    setFile(f); setError(''); setResult(null)
-  }
-
-  const handleDrop = (e) => {
-    e.preventDefault(); setDragOver(false)
-    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0])
-  }
-
-  const handleExtract = async () => {
-    if (!file) return
-    setLoading(true); setError('')
-    try {
-      const fd = new FormData()
-      fd.append('document', file)
-      const { data } = await api.post('/ocr/extract', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      setResult(data.data)
-    } catch (err) {
-      setError(err.response?.data?.error || 'OCR failed. Please fill manually.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleUse = () => {
-    if (!result) return
-    const f = result.fields
-    onFieldsExtracted({
-      ...(f.program ? { programName: f.program } : {}), ...(f.department ? { department: f.department } : {}),
-      ...(f.graduationYear ? { graduationYear: f.graduationYear } : {}), ...(f.cgpa != null ? { cgpa: f.cgpa } : {}),
-    })
-    setResult(null); setFile(null)
-  }
-
-  return (
-    <div className="border-y border-rule py-5 mb-6">
-      <div className="flex items-center gap-2 mb-1">
-        <Scan className="h-4 w-4 text-ink-soft" />
-        <p className="text-sm font-medium text-ink">Auto-fill from your transcript</p>
-        <span className="text-xs text-ink-faint ml-1">· optional</span>
-      </div>
-      <p className="text-xs text-ink-faint mb-4">Upload your degree or transcript to extract details automatically.</p>
-      <div onClick={() => !loading && fileRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
-        className={`border-2 border-dashed rounded-md p-5 text-center cursor-pointer transition-all mb-3 ${
-          loading ? 'opacity-50 cursor-not-allowed' : dragOver ? 'border-navy bg-white' :
-          file ? 'border-emerald-600 bg-white' : 'border-rule-strong hover:border-ink bg-white'}`}>
-        <input ref={fileRef} type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" className="hidden"
-          onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} />
-        {file ? (
-          <div>
-            <p className="text-ink text-sm font-medium break-words">{file.name}</p>
-            <p className="text-ink-faint text-xs mt-0.5">{(file.size / 1024).toFixed(0)} KB · Click to change</p>
-          </div>
-        ) : (
-          <div>
-            <p className="text-ink text-sm font-medium">Drop your degree or transcript here</p>
-            <p className="text-ink-faint text-xs mt-0.5">JPG, PNG, PDF · Max 10MB</p>
-          </div>
-        )}
-      </div>
-      {error && <p className="text-red-700 text-xs mb-3">{error}</p>}
-      {result && (
-        <div className="bg-white border border-rule rounded-md p-4 mb-3">
-          <p className="text-xs font-medium text-ink-faint uppercase tracking-wider mb-3">Extracted · {result.processingTimeMs}ms</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[['Program', result.fields.program], ['Department', result.fields.department],
-              ['Grad Year', result.fields.graduationYear], ['CGPA', result.fields.cgpa]].map(([label, value]) => (
-              <div key={label} className="border-l-2 border-rule pl-2">
-                <p className="text-xs text-ink-faint">{label}</p>
-                <p className={`text-sm font-medium truncate ${value ? 'text-ink' : 'text-ink-faint italic'}`}>{value || 'Not detected'}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="flex gap-2">
-        {file && !result && (
-          <button onClick={handleExtract} disabled={loading}
-            className="button-primary flex-1 !min-h-10">
-            {loading ? <><div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Extracting…</> : <><Scan className="h-3.5 w-3.5" />Extract Fields</>}
-          </button>
-        )}
-        {result && (
-          <>
-            <button onClick={handleUse} className="button-primary flex-1 !min-h-10">Use these fields</button>
-            <button onClick={() => { setResult(null); setFile(null) }} className="button-secondary !min-h-10">Reset</button>
-          </>
-        )}
-      </div>
-    </div>
-  )
+const departments = ['Computer Science', 'Software Engineering', 'Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Business Administration', 'Economics', 'Mathematics', 'Physics', 'Chemistry', 'English', 'Law', 'Pharmacy', 'Medicine']
+const steps = ['Request', 'Details', 'Documents', 'Fee', 'Review & submit']
+const inputClass = 'mt-1.5 block w-full rounded-md border border-rule-strong px-3.5 py-3 text-sm font-normal focus:border-ink'
+const documentHints = {
+  degree: 'Colour scan of your original degree. Include the back if anything is printed there.',
+  transcript: 'Every page of your final transcript or detailed marks certificate.',
+  cnic_front: 'Clear colour scan of the front of your CNIC. A JPG or PNG lets the office compare it with your photograph.',
+  cnic_back: 'Clear colour scan of the back of your CNIC.',
+  photograph: 'Recent passport-size photograph on a plain background. JPG or PNG.',
+  fee_challan: 'The bank-stamped applicant copy of your paid challan.',
+  other: 'Anything else that supports your request, such as a name-change notification.'
 }
+const emptyForm = { requestType: 'degree', processing: 'normal', fatherName: '', cnic: '', dateOfBirth: '', programName: '', department: '', session: '', registrationNumber: '', rollNumber: '', graduationYear: '', cgpa: '' }
+const toForm = (record, user) => ({
+  ...emptyForm,
+  fatherName: user?.fatherName || '', cnic: user?.cnic || '', registrationNumber: user?.studentId || '',
+  ...Object.fromEntries(Object.keys(emptyForm).filter(key => record?.[key] != null).map(key => [key, String(record[key])])),
+  dateOfBirth: record?.dateOfBirth ? record.dateOfBirth.slice(0, 10) : ''
+})
+const today = () => new Date().toISOString().slice(0, 10)
 
-const NewApplication = () => {
-  const { api, downloadDocument } = useAuth()
-  const [step, setStep] = useState(1)
-  const [identityChecked, setIdentityChecked] = useState(false)
+export default function NewApplication() {
+  const { api, user, downloadDocument } = useAuth()
+  const { config, error: configError } = useConfig()
   const [application, setApplication] = useState(null)
-  const [checking, setChecking] = useState(true)
-  const [checkFailed, setCheckFailed] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [form, setForm] = useState(() => toForm(null, user))
+  const [payment, setPayment] = useState({ paidOn: '', bankReference: '' })
+  const [declared, setDeclared] = useState(false)
+  const [step, setStep] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
-  const [documents, setDocuments] = useState([])
-  const [removeTarget, setRemoveTarget] = useState(null)
   const [notice, setNotice] = useState('')
   const [confirmWithdraw, setConfirmWithdraw] = useState(false)
+  const [removeTarget, setRemoveTarget] = useState(null)
+  const [submitted, setSubmitted] = useState(null)
+  const heading = useRef(null)
   const errorRef = useRef(null)
-  const headingRef = useRef(null)
-  const firstStep = useRef(true)
-  const [form, setForm] = useState({ programName: '', department: '', graduationYear: new Date().getFullYear(), cgpa: '' })
-  const editable = !application || application.status === 'draft' || (application.status === 'pending' && !application.submittedAt && !application.documents?.length)
-  const applyRecord = record => {
+  const firstRender = useRef(true)
+
+  const apply = useCallback(record => {
     setApplication(record)
-    setDocuments(record.documents || [])
-    setForm({ programName: record.programName, department: record.department, graduationYear: record.graduationYear, cgpa: record.cgpa ?? '' })
-  }
-  const load = async () => {
-    setChecking(true); setCheckFailed(false); setError('')
+    setForm(toForm(record, user))
+    setPayment({ paidOn: record.fee?.paidOn ? record.fee.paidOn.slice(0, 10) : '', bankReference: record.fee?.bankReference || '' })
+  }, [user])
+  const load = useCallback(async () => {
+    setLoading(true); setLoadFailed(false); setError('')
     try {
       const { data } = await api.get('/student/applications')
-      const active = data.applications.find(item => activeStatuses.includes(item.status))
-      if (active) { applyRecord(active); setStep(active.status === 'draft' ? (active.documents.length ? 3 : 1) : 3) }
-    } catch (err) { setCheckFailed(true); setError(apiError(err, 'Could not load your application. Please retry.')) }
-    finally { setChecking(false) }
-  }
-  useEffect(() => { load() }, [api])
-  // Actions sit at the bottom of a long form; bring their error into view instead of only announcing it.
+      const open = data.applications.find(item => OPEN_STATUSES.includes(item.status))
+      if (open) {
+        apply(open)
+        const flagged = open.documents?.some(document => document.review?.status === 'flagged')
+        setStep(open.status === 'objection' ? (flagged ? 2 : 1) : open.documents?.length ? 2 : 1)
+      }
+    } catch (err) { setLoadFailed(true); setError(apiError(err, 'Could not load your request. Please retry.')) }
+    finally { setLoading(false) }
+  }, [api, apply])
+  useEffect(() => { load() }, [load])
   useEffect(() => { if (error) errorRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }) }, [error])
-  // The button that changed the step is gone, so put focus on the new step's heading.
   useEffect(() => {
-    if (firstStep.current) { firstStep.current = false; return }
-    headingRef.current?.focus({ preventScroll: true }); window.scrollTo(0, 0)
-  }, [step])
+    if (firstRender.current) { firstRender.current = false; return }
+    // A message belongs to the step that produced it.
+    setNotice(''); setError('')
+    heading.current?.focus({ preventScroll: true }); window.scrollTo(0, 0)
+  }, [step, submitted])
 
-  const saveDetails = async event => {
-    event.preventDefault(); setBusy(true); setError('')
-    try {
-      const { data } = application
-        ? await api.patch(`/student/applications/${application._id}`, form)
-        : await api.post('/student/applications', form)
-      setApplication(data.application); setStep(2)
-    } catch (err) { setError(apiError(err, 'Could not save your draft.')) }
-    finally { setBusy(false) }
+  const run = async (label, action, fallback) => {
+    setBusy(label); setError(''); setNotice('')
+    try { return await action() } catch (err) { setError(apiError(err, fallback)); return null } finally { setBusy('') }
   }
-  const upload = async event => {
-    const files = Array.from(event.target.files)
-    event.target.value = ''
-    if (!files.length) return
-    if (files.length > 5 || files.some(file => file.size > 10 * 1024 * 1024 || !['application/pdf', 'image/jpeg', 'image/png'].includes(file.type))) {
-      setError('Select up to five PDF, JPG, or PNG files, each 10MB or smaller.'); return
-    }
-    setBusy(true); setError('')
-    try {
-      const body = new FormData()
-      files.forEach(file => body.append('documents', file))
-      const { data } = await api.post(`/student/applications/${application._id}/documents`, body)
-      setDocuments(previous => [...previous, ...data.documents])
-    } catch (err) { setError(apiError(err, 'Upload failed. Your draft is saved; you can retry.')) }
-    finally { setBusy(false) }
+  const update = name => event => setForm(previous => ({ ...previous, [name]: name === 'cnic' ? formatCnic(event.target.value) : event.target.value }))
+  const saveDetails = async (event, nextStep) => {
+    event?.preventDefault()
+    const body = { ...form, graduationYear: form.graduationYear === '' ? '' : Number(form.graduationYear) }
+    const saved = await run('details', async () => {
+      const { data } = application ? await api.patch(`/student/applications/${application._id}`, body) : await api.post('/student/applications', body)
+      apply(data.application)
+      return data.application
+    }, 'Could not save your details.')
+    if (saved && nextStep != null) setStep(nextStep)
   }
-  const replace = async (event, document) => {
+  const chooseRequest = event => {
+    event.preventDefault()
+    if (application) saveDetails(null, 1)
+    else setStep(1)
+  }
+  const uploadDocument = (kind) => async event => {
     const file = event.target.files[0]
     event.target.value = ''
     if (!file) return
-    if (file.size > 10 * 1024 * 1024 || !['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
-      setError('Choose a PDF, JPG, or PNG file, 10MB or smaller.'); return
-    }
-    setBusy(true); setError(''); setNotice('')
-    try {
-      const body = new FormData(); body.append('document', file)
-      const { data } = await api.put(`/student/applications/${application._id}/documents/${document._id}`, body)
-      setDocuments(data.documents); setNotice('Document replaced. Your draft is saved.')
-    } catch (err) { setError(apiError(err, 'Could not replace the document. Your original file is still attached.')) }
-    finally { setBusy(false) }
+    if (file.size > 10 * 1024 * 1024 || !['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) { setError('Choose a PDF, JPG, or PNG file of 10MB or less.'); return }
+    if (kind === 'photograph' && file.type === 'application/pdf') { setError('Upload your photograph as a JPG or PNG image.'); return }
+    const body = new FormData()
+    body.append('kind', kind)
+    body.append('document', file)
+    const result = await run(`upload-${kind}`, async () => (await api.post(`/student/applications/${application._id}/documents`, body)).data, 'Upload failed. Your request is saved; try again.')
+    if (result) { setApplication(result.application); setNotice(`${config.documentKinds[kind]} ${result.message === 'Document replaced.' ? 'replaced' : 'uploaded'}.`) }
   }
-  const remove = async () => {
-    setBusy(true); setError(''); setNotice('')
-    try {
-      const { data } = await api.delete(`/student/applications/${application._id}/documents/${removeTarget._id}`)
-      setDocuments(data.documents); setRemoveTarget(null); setNotice('Document removed. Your draft is saved.')
-    } catch (err) { setRemoveTarget(null); setError(apiError(err, 'Could not remove the document.')) }
-    finally { setBusy(false) }
+  const removeDocument = async () => {
+    const result = await run('remove', async () => (await api.delete(`/student/applications/${application._id}/documents/${removeTarget._id}`)).data, 'Could not remove the document.')
+    setRemoveTarget(null)
+    if (result) { setApplication(result.application); setNotice('Document removed.') }
+  }
+  const savePayment = async event => {
+    event.preventDefault()
+    const result = await run('payment', async () => (await api.patch(`/student/applications/${application._id}/payment`, payment)).data, 'Could not save the payment details.')
+    if (result) { apply(result.application); setNotice('Payment details saved.') }
   }
   const submit = async () => {
-    setBusy(true); setError('')
-    try {
-      const { data } = await api.post(`/student/applications/${application._id}/submit`)
-      setApplication(data.application); setStep(4)
-    } catch (err) { setError(apiError(err, 'Could not submit. Your draft is saved; please retry.')) }
-    finally { setBusy(false) }
+    const result = await run('submit', async () => (await api.post(`/student/applications/${application._id}/submit`, { declaration: true })).data, 'Could not submit. Your request is saved; please retry.')
+    if (result) setSubmitted(result.application)
   }
   const withdraw = async () => {
-    setBusy(true); setError('')
-    try { await api.patch(`/student/applications/${application._id}/withdraw`); setConfirmWithdraw(false); setApplication(null); setDocuments([]); setNotice(''); setIdentityChecked(false); setForm({ programName: '', department: '', graduationYear: new Date().getFullYear(), cgpa: '' }); setStep(1) }
-    catch (err) { setConfirmWithdraw(false); setError(apiError(err, 'Could not withdraw the application.')) }
-    finally { setBusy(false) }
+    const result = await run('withdraw', async () => (await api.patch(`/student/applications/${application._id}/withdraw`)).data, 'Could not withdraw the request.')
+    setConfirmWithdraw(false)
+    if (result) { setApplication(null); setForm(toForm(null, user)); setPayment({ paidOn: '', bankReference: '' }); setStep(0); setNotice('Request withdrawn. You can start a new one.') }
   }
-  const download = doc => downloadDocument(doc._id, doc.originalName).catch(err => setError(apiError(err, 'Document download failed.')))
-  if (checking) return <p role="status" className="text-center py-16 text-ink-faint">Loading your application...</p>
-  return <div className="max-w-3xl space-y-5">
-    <Link to="/student/dashboard" className="inline-flex items-center gap-1 text-sm text-ink-faint hover:text-ink"><ArrowLeft className="h-4 w-4" /> Back to overview</Link>
+  const download = document => downloadDocument(document._id, document.originalName).catch(err => setError(apiError(err, 'Download failed.')))
+
+  if (loading || (!config && !configError)) return <p role="status" className="py-16 text-center text-ink-faint">Loading your request…</p>
+  if (configError) return <p role="alert" className="border-l-2 border-red-700 bg-red-50 p-4 text-sm text-red-800">{configError}</p>
+  if (application && !EDITABLE_STATUSES.includes(application.status) && !submitted) return <Navigate to={`/student/applications/${application._id}`} replace />
+
+  const objection = application?.status === 'objection' ? application.objection : null
+  const documents = application?.documents || []
+  const byKind = kind => documents.filter(document => document.kind === kind)
+  const required = requiredDocuments(config, form.requestType)
+  const feeAmount = application?.fee?.amount ?? config.requestTypes[form.requestType]?.fees?.[form.processing]
+  const problems = [
+    !application?.fatherName || !application?.cnic || !application?.dateOfBirth ? ['Identity details are incomplete.', 1] : null,
+    !application?.registrationNumber || !application?.session ? ['Registration number and session are required.', 1] : null,
+    ...required.filter(kind => !byKind(kind).length).map(kind => [`${config.documentKinds[kind]} is missing.`, kind === 'fee_challan' ? 3 : 2]),
+    !application?.fee?.paidOn || !application?.fee?.bankReference ? ['Enter your fee payment details.', 3] : null,
+    ...(objection ? documents.filter(document => document.review?.status === 'flagged').map(document => [`Replace the flagged ${config.documentKinds[document.kind].toLowerCase()}.`, document.kind === 'fee_challan' ? 3 : 2]) : [])
+  ].filter(Boolean)
+  const reachable = index => index === 0 || (application && index <= 4)
+
+  if (submitted) return <div className="max-w-3xl space-y-6">
+    <p className="page-kicker">{submitted.applicationNumber}</p>
+    <h1 ref={heading} tabIndex={-1} className="page-title focus:outline-none">{objection ? 'Corrections submitted.' : 'Request submitted.'}</h1>
+    <p className="flex items-center gap-2 text-emerald-800"><CheckCircle className="h-5 w-5" />Your request is with the attestation cell for document scrutiny.</p>
+    <p className="max-w-xl text-ink-soft">Next, the examination branch checks it against university records and the registrar approves it. If anything needs correcting you’ll be notified and can fix it here. Quote <span className="font-mono text-ink">{submitted.applicationNumber}</span> in any enquiry.</p>
+    <div className="flex flex-wrap gap-3"><Link to={`/student/applications/${submitted._id}`} className="button-primary">Track your request<ArrowRight className="h-4 w-4" /></Link><Link to="/student/dashboard" className="button-secondary">Go to overview</Link></div>
+  </div>
+
+  return <div className="max-w-3xl space-y-8">
+    <Link to="/student/dashboard" className="inline-flex items-center gap-1 text-sm text-ink-faint hover:text-ink"><ArrowLeft className="h-4 w-4" />Back to overview</Link>
+    <header>
+      <p className="page-kicker">{application ? <span className="font-mono tracking-normal normal-case">{application.applicationNumber}</span> : 'Attestation request'}</p>
+      <h1 ref={heading} tabIndex={-1} className="page-title mt-3 focus:outline-none">{objection ? 'Correct your request.' : application ? 'Continue your request.' : 'Request attestation.'}</h1>
+      {!objection && <p className="mt-3 text-ink-soft">Your progress is saved as you go. Nothing is sent to the university until you submit on the last step.</p>}
+    </header>
+
+    {objection && <section aria-labelledby="objection-title" className="border-l-2 border-amber-600 bg-amber-50 p-4 sm:p-5">
+      <h2 id="objection-title" className="flex items-center gap-2 text-sm font-semibold text-amber-950"><AlertTriangle className="h-4 w-4" />Objection raised during {config.stages[objection.stage]?.label.toLowerCase() || 'review'}</h2>
+      <p className="mt-2 whitespace-pre-wrap text-sm text-amber-950">{objection.reason}</p>
+      <p className="mt-3 text-xs text-amber-900">Make the corrections below, then resubmit from the last step. Documents that were accepted stay accepted.</p>
+    </section>}
+
+    <ol className="progress-strip" style={{ '--steps': steps.length }} aria-label="Request steps">{steps.map((label, index) => {
+      const state = index === step ? 'current' : index < step ? 'done' : 'next'
+      return <li key={label} data-state={state} aria-current={state === 'current' ? 'step' : undefined}>
+        {reachable(index) && index !== step ? <button type="button" disabled={Boolean(busy)} onClick={() => { setError(''); setNotice(''); setStep(index) }} className="text-left hover:underline underline-offset-4"><span>0{index + 1}</span>{label}</button> : <><span>0{index + 1}</span>{label}</>}
+      </li>
+    })}</ol>
+
     <div ref={errorRef} aria-live="assertive">{error && <p role="alert" className="border-l-2 border-red-700 bg-red-50 p-4 text-sm text-red-800">{error}</p>}</div>
-    <div aria-live="polite">{notice && <p role="status" className="border-l-2 border-emerald-700 bg-emerald-50 p-4 text-sm text-emerald-900">{notice}</p>}</div>
-    {checkFailed ? <button onClick={load} className="button-primary">Retry loading</button> :
-    <div className="space-y-9">
-      <div><p className="page-kicker mb-3">Degree attestation</p><h1 ref={headingRef} tabIndex={-1} className="page-title focus:outline-none">{step === 4 ? 'Application submitted' : !editable ? 'Your active application' : application ? 'Continue your application' : 'New degree application'}</h1>
-        {editable && step !== 4 && <p className="text-sm text-ink-faint mt-2">Save your details, add supporting documents, then submit for review. Your saved draft can be resumed later.</p>}</div>
-      {step === 4 ? <div className="space-y-4 border-t border-ink pt-6">
-        <p className="flex items-center gap-2 text-emerald-800"><CheckCircle className="h-5 w-5" />Submitted for review</p>
-        <p className="text-ink">Your application and {documents.length} supporting document{documents.length === 1 ? '' : 's'} are now waiting for the university’s review.</p>
-        <p className="text-sm text-ink-soft">You can follow its progress and read any feedback on your overview.</p>
-        <Link to="/student/dashboard" className="button-primary">Go to overview</Link>
-      </div> : !editable ? <div className="space-y-4">
-        <p className="flex items-center gap-2 border-y border-rule py-4 text-ink"><span aria-hidden="true" className="status-dot bg-blue-600" />Status: {labels[application.status]}</p>
-        <dl className="grid grid-cols-2 gap-4 text-sm">{[['Program', application.programName], ['Department', application.department], ['Graduation year', application.graduationYear], ['CGPA', application.cgpa ?? 'Not provided']].map(([key, value]) => <div key={key}><dt className="text-ink-faint">{key}</dt><dd className="text-ink font-medium">{value}</dd></div>)}</dl>
-        {application.adminComments && <p className="border-l-2 border-rule-strong pl-3 text-sm text-ink-soft"><strong className="font-medium text-ink">Reviewer’s note:</strong> {application.adminComments}</p>}
-        <Link to={`/student/applications/${application._id}`} className="text-link text-sm">View details & history</Link>
-        {documents.map(doc => <button key={doc._id} onClick={() => download(doc)} className="text-link block text-sm">Download {doc.originalName}</button>)}
-        {application.status === 'pending' && <button onClick={() => setConfirmWithdraw(true)} disabled={busy} className="min-h-11 text-red-800 text-sm underline disabled:opacity-50">Withdraw application</button>}
-      </div> : <>
-        <ol className="progress-strip" aria-label="Application steps">{['Your details', 'Identity check', 'Review & submit'].map((label, index) => {
-          const state = step === index + 1 ? 'current' : step > index + 1 && (index !== 1 || identityChecked) ? 'done' : 'next'
-          return <li key={label} data-state={state} aria-current={state === 'current' ? 'step' : undefined}><span>0{index + 1}{index === 1 ? ' · optional' : ''}</span>{label}<span className="sr-only">{state === 'done' ? ' (complete)' : state === 'current' ? ' (current step)' : step > index + 1 ? ' (skipped)' : ''}</span></li>
-        })}</ol>
-        {step === 1 && <>
-          <OCRUploader api={api} onFieldsExtracted={fields => setForm(previous => ({ ...previous, ...fields }))} />
-          <form onSubmit={saveDetails} className="space-y-4">
-            <label className="block text-sm">Program name<input required maxLength={150} value={form.programName} onChange={event => setForm({ ...form, programName: event.target.value })} className="mt-2 block border border-rule-strong rounded-md px-3.5 py-3 w-full text-sm focus:border-ink" /></label>
-            <label className="block text-sm">Department<input required maxLength={100} list="departments" value={form.department} onChange={event => setForm({ ...form, department: event.target.value })} className="mt-2 block border border-rule-strong rounded-md px-3.5 py-3 w-full text-sm focus:border-ink" /><datalist id="departments">{departments.map(dept => <option key={dept} value={dept} />)}</datalist></label>
-            <div className="grid grid-cols-2 gap-4">
-              <label className="block text-sm">Graduation year<input required type="number" min={2000} max={2030} value={form.graduationYear} onChange={event => setForm({ ...form, graduationYear: event.target.value })} className="mt-2 block border border-rule-strong rounded-md px-3.5 py-3 w-full text-sm focus:border-ink" /></label>
-              <label className="block text-sm">CGPA (optional)<input type="number" min={0} max={4} step="0.01" value={form.cgpa} onChange={event => setForm({ ...form, cgpa: event.target.value })} className="mt-2 block border border-rule-strong rounded-md px-3.5 py-3 w-full text-sm focus:border-ink" /></label>
+    <div aria-live="polite">{notice && <p role="status" className="border-l-2 border-emerald-700 bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}</div>
+    {loadFailed && <button onClick={load} className="button-primary">Retry loading</button>}
+
+    {step === 0 && <form onSubmit={chooseRequest} className="space-y-8">
+      <fieldset>
+        <legend className="text-sm font-semibold text-ink">What do you need attested?</legend>
+        <div className="mt-3 divide-y divide-rule border-y border-rule">{Object.entries(config.requestTypes).map(([key, type]) => <label key={key} className={`flex cursor-pointer items-start gap-3 py-4 ${form.requestType === key ? 'text-ink' : ''}`}>
+          <input type="radio" name="requestType" value={key} checked={form.requestType === key} onChange={update('requestType')} disabled={application?.fee?.verified} className="mt-1 accent-navy" />
+          <span className="flex-1"><span className="block font-medium text-ink">{type.label}</span><span className="block text-xs text-ink-faint">Requires {type.documents.map(kind => config.documentKinds[kind]).join(', ')}</span></span>
+          <span className="font-mono text-xs text-ink-soft">from {formatPKR(type.fees.normal)}</span>
+        </label>)}</div>
+      </fieldset>
+      <fieldset>
+        <legend className="text-sm font-semibold text-ink">Processing</legend>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">{Object.entries(config.processing).map(([key, option]) => <label key={key} className={`flex cursor-pointer items-start gap-3 rounded-md border p-4 ${form.processing === key ? 'border-ink bg-white' : 'border-rule-strong'}`}>
+          <input type="radio" name="processing" value={key} checked={form.processing === key} onChange={update('processing')} disabled={application?.fee?.verified} className="mt-1 accent-navy" />
+          <span className="flex-1"><span className="block font-medium text-ink">{option.label}</span><span className="block text-xs text-ink-faint">About {option.days} working days after scrutiny</span></span>
+          <span className="font-mono text-sm text-ink">{formatPKR(config.requestTypes[form.requestType].fees[key])}</span>
+        </label>)}</div>
+        {application?.fee?.verified && <p className="mt-3 text-xs text-ink-faint">Your fee has been verified, so the request type and processing can no longer change.</p>}
+      </fieldset>
+      <div className="flex justify-end"><button disabled={Boolean(busy)} className="button-primary">{busy === 'details' ? 'Saving…' : 'Continue'}<ArrowRight className="h-4 w-4" /></button></div>
+    </form>}
+
+    {step === 1 && <form onSubmit={event => saveDetails(event, 2)} className="space-y-10">
+      <fieldset className="space-y-4">
+        <legend className="rule-heading w-full"><span>Applicant</span></legend>
+        <p className="text-sm text-ink-soft">Name: <span className="font-medium text-ink">{user.fullName}</span> <span className="text-ink-faint">(from your account)</span></p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="field-label">Father’s name<input required maxLength={100} autoComplete="off" value={form.fatherName} onChange={update('fatherName')} className={inputClass} /></label>
+          <label className="field-label">CNIC<input required inputMode="numeric" placeholder="00000-0000000-0" pattern="\d{5}-\d{7}-\d" title="00000-0000000-0" value={form.cnic} onChange={update('cnic')} className={`${inputClass} font-mono`} /></label>
+          <label className="field-label">Date of birth<input required type="date" max={today()} value={form.dateOfBirth} onChange={update('dateOfBirth')} className={inputClass} /></label>
+        </div>
+      </fieldset>
+      <fieldset className="space-y-4">
+        <legend className="rule-heading w-full"><span>Academic record</span></legend>
+        <p className="text-sm text-ink-soft">Enter these exactly as they appear on your degree. The examination branch checks them against university records.</p>
+        <label className="field-label">Degree title<input required maxLength={150} placeholder="e.g. BS Computer Science" value={form.programName} onChange={update('programName')} className={inputClass} /></label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="field-label">Department<input required maxLength={100} list="departments" value={form.department} onChange={update('department')} className={inputClass} /><datalist id="departments">{departments.map(name => <option key={name} value={name} />)}</datalist></label>
+          <label className="field-label">Session<input required maxLength={20} placeholder="e.g. 2018–2022" value={form.session} onChange={update('session')} className={inputClass} /></label>
+          <label className="field-label">Registration no.<input required maxLength={40} value={form.registrationNumber} onChange={update('registrationNumber')} className={`${inputClass} font-mono`} /></label>
+          <label className="field-label">Roll no. <span className="font-normal text-ink-faint">(optional)</span><input maxLength={40} value={form.rollNumber} onChange={update('rollNumber')} className={`${inputClass} font-mono`} /></label>
+          <label className="field-label">Year of passing<input required type="number" min={1950} max={new Date().getFullYear()} value={form.graduationYear} onChange={update('graduationYear')} className={inputClass} /></label>
+          <label className="field-label">CGPA <span className="font-normal text-ink-faint">(if on your transcript)</span><input type="number" min={0} max={4} step="0.01" value={form.cgpa} onChange={update('cgpa')} className={inputClass} /></label>
+        </div>
+      </fieldset>
+      <div className="flex flex-wrap justify-between gap-3"><button type="button" onClick={() => setStep(0)} className="button-secondary"><ArrowLeft className="h-4 w-4" />Back</button><button disabled={Boolean(busy)} className="button-primary">{busy === 'details' ? 'Saving…' : application ? 'Save and continue' : 'Save draft and continue'}<ArrowRight className="h-4 w-4" /></button></div>
+    </form>}
+
+    {step === 2 && application && <div className="space-y-8">
+      <p className="text-sm text-ink-soft">Upload a clear scan of each document. PDF, JPG, or PNG up to 10MB. Uploading again replaces the file.</p>
+      <ul className="divide-y divide-rule border-y border-rule">{[...required.filter(kind => kind !== 'fee_challan'), 'other'].map(kind => {
+        const files = byKind(kind)
+        const optional = kind === 'other'
+        return <li key={kind} className="py-5">
+          <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+            <div className="min-w-[14rem] flex-1">
+              <p className="font-medium text-ink">{config.documentKinds[kind]}{optional && <span className="ml-2 text-xs font-normal text-ink-faint">Optional</span>}</p>
+              <p className="mt-0.5 text-xs text-ink-faint">{documentHints[kind]}</p>
             </div>
-            <button disabled={busy} className="button-primary w-full">{busy ? 'Saving draft...' : 'Save draft & continue'}</button>
-          </form>
-        </>}
-        {step === 2 && <>
-          <FaceVerification api={api} onVerified={() => { setIdentityChecked(true); setError(''); setStep(3) }} />
-          <div className="flex justify-between gap-3"><button onClick={() => setStep(1)} className="min-h-11 text-sm underline text-ink-soft hover:text-ink">Back to details</button><button onClick={() => { setError(''); setStep(3) }} className="button-secondary">Skip optional check</button></div>
-        </>}
-        {step === 3 && <div className="space-y-5">
-          <div className="border-t border-ink pt-4 text-sm space-y-1"><p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink">Review your details</p><p className="display pt-2 text-2xl">{form.programName}</p><p className="text-ink-soft">{form.department} · Graduation {form.graduationYear}{form.cgpa !== '' ? ` · CGPA ${form.cgpa}` : ''}</p>{application.status === 'draft' && <button disabled={busy} onClick={() => setStep(1)} className="text-link mt-2">Edit details</button>}</div>
-          <label className={`block border-2 border-dashed border-rule-strong bg-white rounded-md p-8 text-center focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-navy ${busy ? 'opacity-50' : 'cursor-pointer hover:border-ink'}`}>
-            <Upload className="h-8 w-8 text-ink-faint mx-auto mb-2" /><span className="block text-sm font-medium text-ink">Add supporting documents</span><span className="block text-xs text-ink-faint mt-1">Degree certificate, transcript, or ID. PDF, JPG, PNG; up to five files per upload, 10MB each.</span>
-            <input aria-label="Add supporting documents" disabled={busy} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={upload} className="sr-only" />
-          </label>
-          {busy && <p role="status" className="text-sm text-ink-faint">Saving, please wait...</p>}
-          <ul className="divide-y divide-rule border-y border-rule-strong">{documents.map(doc => <li key={doc._id} className="flex flex-wrap items-center gap-3 py-3 text-sm"><CheckCircle className="h-4 w-4 text-emerald-700 shrink-0" /><button onClick={() => download(doc)} className="text-link break-all text-left flex-1 min-w-0">{doc.originalName}</button>{application.status === 'draft' && <div className="flex gap-2 items-center"><label className={`button-secondary !px-3 !min-h-10 cursor-pointer focus-within:outline focus-within:outline-2 focus-within:outline-navy ${busy ? 'opacity-50' : ''}`}>Replace<input aria-label={`Replace ${doc.originalName}`} disabled={busy} type="file" accept=".pdf,.jpg,.jpeg,.png" className="sr-only" onChange={event => replace(event, doc)} /></label><button aria-label={`Remove ${doc.originalName}`} disabled={busy} onClick={() => setRemoveTarget(doc)} className="min-h-10 px-2 text-red-700 underline disabled:opacity-50">Remove</button></div>}</li>)}</ul>
-          <p className="text-xs text-ink-faint">At least one document is required. Submitting locks your details and documents for admin review.</p>
-          <button disabled={busy || !documents.length} onClick={submit} className="button-primary w-full">{busy ? 'Please wait...' : 'Submit application for review'}</button>
-          <button disabled={busy} onClick={() => setConfirmWithdraw(true)} className="min-h-11 text-red-800 text-sm underline disabled:opacity-50">Withdraw draft</button>
-        </div>}
-      </>}
+            <label className={`button-secondary !min-h-10 cursor-pointer focus-within:outline focus-within:outline-2 focus-within:outline-navy ${busy ? 'pointer-events-none opacity-50' : ''}`}>
+              <Upload className="h-4 w-4" />{busy === `upload-${kind}` ? 'Uploading…' : files.length && !optional ? 'Replace' : optional && files.length ? 'Add another' : 'Upload'}
+              <input type="file" className="sr-only" accept={kind === 'photograph' ? '.jpg,.jpeg,.png' : '.pdf,.jpg,.jpeg,.png'} disabled={Boolean(busy)} onChange={uploadDocument(kind)} aria-label={`Upload ${config.documentKinds[kind]}`} />
+            </label>
+          </div>
+          {files.map(file => <div key={file._id} className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <CheckCircle className="h-4 w-4 shrink-0 text-emerald-700" />
+            <button onClick={() => download(file)} className="text-link min-w-0 break-all text-left">{file.originalName}</button>
+            {objection && <ReviewMark review={file.review} />}
+            {optional && <button disabled={Boolean(busy)} onClick={() => setRemoveTarget(file)} className="text-xs text-red-800 underline">Remove</button>}
+            {file.review?.status === 'flagged' && file.review.note && <p className="basis-full border-l-2 border-amber-500 pl-3 text-amber-900">{file.review.note}</p>}
+          </div>)}
+        </li>
+      })}</ul>
+      <div className="flex flex-wrap justify-between gap-3"><button onClick={() => setStep(1)} className="button-secondary"><ArrowLeft className="h-4 w-4" />Back</button><button onClick={() => setStep(3)} className="button-primary">Continue to fee<ArrowRight className="h-4 w-4" /></button></div>
     </div>}
-    {confirmWithdraw && <ConfirmationDialog title={application?.status === 'draft' ? 'Withdraw this draft?' : 'Withdraw this application?'} busy={busy} danger onClose={() => setConfirmWithdraw(false)} onConfirm={withdraw} confirmLabel="Withdraw"><p>It will be closed and kept on your record as withdrawn. You can start a new application afterwards.</p></ConfirmationDialog>}
-    {removeTarget && <ConfirmationDialog title="Remove document?" busy={busy} danger onClose={() => setRemoveTarget(null)} onConfirm={remove} confirmLabel="Remove document"><p className="break-words">Remove {removeTarget.originalName} from your draft? You can upload another file before submitting.</p>{documents.length === 1 && <p className="mt-3">You will need to add a supporting document before you can submit.</p>}</ConfirmationDialog>}
+
+    {step === 3 && application && <div className="space-y-8">
+      <section aria-labelledby="challan-title" className="certificate-sheet !p-6 sm:!p-8">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div><p className="page-kicker">Fee challan</p><h2 id="challan-title" className="mt-2 font-mono text-lg text-ink">{application.fee?.challanNumber}</h2></div>
+          <p className="display text-3xl">{formatPKR(feeAmount)}</p>
+        </div>
+        <dl className="meta-list mt-6">
+          <dt>Pay to</dt><dd>{config.bank.accountTitle}</dd>
+          <dt>Bank</dt><dd>{config.bank.name}</dd>
+          <dt>Account</dt><dd className="font-mono text-[13px]">{config.bank.accountNumber}</dd>
+          <dt>For</dt><dd>{config.requestTypes[application.requestType].label} · {config.processing[application.processing].label}</dd>
+        </dl>
+        <div className="mt-6 flex flex-wrap items-center gap-4">
+          <Link to={`/student/applications/${application._id}/challan`} target="_blank" className="button-primary"><Printer className="h-4 w-4" />Print challan</Link>
+          <p className="text-xs text-ink-faint">Pay at any {config.bank.name} branch within {config.bank.validDays} days, then enter the details below.</p>
+        </div>
+      </section>
+
+      {application.fee?.verified ? <p className="flex items-center gap-2 border-l-2 border-emerald-700 bg-emerald-50 p-3 text-sm text-emerald-900"><CheckCircle className="h-4 w-4" />Your payment has been verified by the attestation cell.</p> : <>
+        <form onSubmit={savePayment} className="space-y-4">
+          <h2 className="rule-heading"><span>After paying</span></h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="field-label">Payment date<input required type="date" max={today()} value={payment.paidOn} onChange={event => setPayment({ ...payment, paidOn: event.target.value })} className={inputClass} /></label>
+            <label className="field-label">Bank transaction / scroll no.<input required minLength={3} maxLength={40} value={payment.bankReference} onChange={event => setPayment({ ...payment, bankReference: event.target.value })} className={`${inputClass} font-mono`} /></label>
+          </div>
+          <button disabled={Boolean(busy)} className="button-secondary">{busy === 'payment' ? 'Saving…' : application.fee?.paidOn ? 'Update payment details' : 'Save payment details'}</button>
+        </form>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule pt-5">
+          <div className="min-w-[14rem] flex-1"><p className="font-medium text-ink">{config.documentKinds.fee_challan}</p><p className="text-xs text-ink-faint">{documentHints.fee_challan}</p>
+            {byKind('fee_challan').map(file => <p key={file._id} className="mt-2 flex flex-wrap items-center gap-2 text-sm"><CheckCircle className="h-4 w-4 text-emerald-700" /><button onClick={() => download(file)} className="text-link break-all text-left">{file.originalName}</button>{objection && <ReviewMark review={file.review} />}</p>)}
+          </div>
+          <label className={`button-secondary !min-h-10 cursor-pointer focus-within:outline focus-within:outline-2 focus-within:outline-navy ${busy ? 'pointer-events-none opacity-50' : ''}`}>
+            <Upload className="h-4 w-4" />{busy === 'upload-fee_challan' ? 'Uploading…' : byKind('fee_challan').length ? 'Replace' : 'Upload'}
+            <input type="file" className="sr-only" accept=".pdf,.jpg,.jpeg,.png" disabled={Boolean(busy)} onChange={uploadDocument('fee_challan')} aria-label={`Upload ${config.documentKinds.fee_challan}`} />
+          </label>
+        </div>
+      </>}
+      <div className="flex flex-wrap justify-between gap-3"><button onClick={() => setStep(2)} className="button-secondary"><ArrowLeft className="h-4 w-4" />Back</button><button onClick={() => setStep(4)} className="button-primary">Review request<ArrowRight className="h-4 w-4" /></button></div>
+    </div>}
+
+    {step === 4 && application && <div className="space-y-8">
+      <section className="space-y-4">
+        <h2 className="rule-heading"><span>{config.requestTypes[application.requestType].label}</span><span className="normal-case tracking-normal text-xs font-normal text-ink-faint">{config.processing[application.processing].label} · {formatPKR(application.fee?.amount)}</span></h2>
+        <dl className="record-fields !mt-2">{[
+          ['Name', user.fullName], ['Father’s name', application.fatherName], ['CNIC', application.cnic], ['Date of birth', application.dateOfBirth ? new Date(application.dateOfBirth).toLocaleDateString('en-PK', { day: 'numeric', month: 'long', year: 'numeric' }) : null],
+          ['Degree', application.programName], ['Department', application.department], ['Session', application.session], ['Registration no.', application.registrationNumber],
+          ['Roll no.', application.rollNumber], ['Year of passing', application.graduationYear], ['CGPA', application.cgpa], ['Fee paid', application.fee?.paidOn ? `${new Date(application.fee.paidOn).toLocaleDateString('en-PK')} · ${application.fee.bankReference}` : null]
+        ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value ?? <span className="text-ink-faint">Not provided</span>}</dd></div>)}</dl>
+        <button onClick={() => setStep(1)} className="text-link text-sm">Edit details</button>
+      </section>
+      <section className="space-y-2">
+        <h2 className="rule-heading"><span>Documents</span><span className="normal-case tracking-normal text-xs font-normal text-ink-faint">{documents.length} attached</span></h2>
+        <ul className="text-sm">{required.map(kind => <li key={kind} className="flex items-center gap-2 py-1.5">{byKind(kind).length ? <CheckCircle className="h-4 w-4 text-emerald-700" /> : <AlertTriangle className="h-4 w-4 text-amber-600" />}<span className="text-ink">{config.documentKinds[kind]}</span></li>)}</ul>
+      </section>
+      {problems.length > 0 ? <section role="alert" className="border-l-2 border-amber-600 bg-amber-50 p-4">
+        <h2 className="text-sm font-semibold text-amber-950">Before you can submit</h2>
+        <ul className="mt-2 space-y-1 text-sm text-amber-950">{problems.map(([text, target]) => <li key={text}><button onClick={() => setStep(target)} className="text-left underline underline-offset-2">{text}</button></li>)}</ul>
+      </section> : <label className="flex items-start gap-3 rounded-md border border-rule-strong bg-white p-4 text-sm text-ink">
+        <input type="checkbox" checked={declared} onChange={event => setDeclared(event.target.checked)} className="mt-1 h-4 w-4 accent-navy" />
+        <span>I declare that the information and documents I have provided are true and genuine. I understand that a false declaration will lead to rejection and may result in action under university rules.</span>
+      </label>}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button onClick={() => setStep(3)} className="button-secondary"><ArrowLeft className="h-4 w-4" />Back</button>
+        <button disabled={Boolean(busy) || problems.length > 0 || !declared} onClick={submit} className="button-primary">{busy === 'submit' ? 'Submitting…' : objection ? 'Resubmit request' : 'Submit request'}</button>
+      </div>
+    </div>}
+
+    {application && <p className="border-t border-rule pt-5 text-sm text-ink-faint">Changed your mind? <button disabled={Boolean(busy)} onClick={() => setConfirmWithdraw(true)} className="text-red-800 underline">Withdraw this request</button></p>}
+
+    {confirmWithdraw && <ConfirmationDialog title="Withdraw this request?" busy={busy === 'withdraw'} danger onClose={() => setConfirmWithdraw(false)} onConfirm={withdraw} confirmLabel="Withdraw request"><p>It will be closed and kept on your record as withdrawn. Fees already paid are handled by the registrar’s office under the university’s refund policy.</p></ConfirmationDialog>}
+    {removeTarget && <ConfirmationDialog title="Remove document?" busy={busy === 'remove'} danger onClose={() => setRemoveTarget(null)} onConfirm={removeDocument} confirmLabel="Remove"><p className="break-words">Remove {removeTarget.originalName} from your request?</p></ConfirmationDialog>}
   </div>
 }
-export default NewApplication

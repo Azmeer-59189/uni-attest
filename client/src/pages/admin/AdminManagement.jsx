@@ -5,8 +5,16 @@ import { formatDate } from '../../components/ApplicationRecord'
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { Plus, Eye, EyeOff, RefreshCw } from 'lucide-react'
+import { staffRoleLabels } from '../../utils/workflow'
 
-const emptyForm = { fullName: '', email: '', password: '', department: '' }
+const roleDuties = {
+  scrutiny: 'Checks documents and fee payments; raises objections.',
+  examination: 'Verifies particulars against result records.',
+  registrar: 'Gives final approval and issues certificates.',
+  admin: 'Can act at every stage. For small offices.'
+}
+
+const emptyForm = { fullName: '', email: '', password: '', department: '', role: 'scrutiny' }
 const inputClass = 'w-full h-11 px-3 border border-rule-strong rounded-md focus:border-ink text-sm font-normal'
 
 const AdminManagement = () => {
@@ -29,7 +37,7 @@ const AdminManagement = () => {
       const res = await api.get('/admin/admins')
       setAdmins(res.data.admins)
     } catch (err) {
-      setLoadError(apiError(err, 'Could not load admin accounts.'))
+      setLoadError(apiError(err, 'Could not load staff accounts.'))
     } finally {
       setLoading(false)
     }
@@ -46,11 +54,11 @@ const AdminManagement = () => {
     try {
       await api.post('/admin/admins', form)
       await fetchAdmins()
-      setMessage({ type: 'success', text: `Admin account created for ${form.fullName}.` })
+      setMessage({ type: 'success', text: `${staffRoleLabels[form.role]} account created for ${form.fullName}.` })
       closeForm()
       setForm(emptyForm)
     } catch (err) {
-      setFormError(apiError(err, 'Failed to create admin.'))
+      setFormError(apiError(err, 'Could not create the account.'))
     } finally {
       setActionLoading(null)
     }
@@ -73,18 +81,18 @@ const AdminManagement = () => {
 
   const update = (field) => (e) => setForm({ ...form, [field]: e.target.value })
 
-  if (loading) return <p role="status" className="py-24 text-center text-ink-faint">Loading admin accounts…</p>
+  if (loading) return <p role="status" className="py-24 text-center text-ink-faint">Loading staff accounts…</p>
 
   return (
     <div className="max-w-4xl space-y-10">
-      <PageHeader eyebrow="Staff access" title="Your administration team." description="The people who review applications and issue credentials. Student registration only ever creates student accounts; staff accounts are created here. Deactivated admins lose access immediately, and their review history is kept." actions={<button onClick={() => { setMessage(null); setShowForm(true) }} className="button-primary"><Plus className="h-4 w-4" />Add admin</button>} />
+      <PageHeader eyebrow="Staff access" title="Your attestation office." description="Each role works one stage: scrutiny officers check documents and fees, examination officers verify records, and the registrar approves and issues. Deactivated staff lose access immediately; their decisions stay on record." actions={<button onClick={() => { setMessage(null); setShowForm(true) }} className="button-primary"><Plus className="h-4 w-4" />Add staff</button>} />
 
       <div aria-live="polite">{message && <p role={message.type === 'error' ? 'alert' : 'status'} className={`flex flex-wrap items-center justify-between gap-3 border-l-2 p-3 text-sm ${message.type === 'error' ? 'border-red-700 bg-red-50 text-red-800' : 'border-emerald-700 bg-emerald-50 text-emerald-900'}`}>{message.text}<button onClick={() => setMessage(null)} className="text-xs underline">Dismiss</button></p>}</div>
 
       <section aria-labelledby="admins-title">
-        <h2 id="admins-title" className="rule-heading"><span>Admin accounts</span>{!loadError && <span className="normal-case tracking-normal text-xs font-normal text-ink-faint">{admins.length} total</span>}</h2>
+        <h2 id="admins-title" className="rule-heading"><span>Staff accounts</span>{!loadError && <span className="normal-case tracking-normal text-xs font-normal text-ink-faint">{admins.length} total</span>}</h2>
         {loadError ? <div role="alert" className="py-10"><p className="text-red-800">{loadError}</p><button onClick={() => { setLoading(true); fetchAdmins() }} className="button-secondary mt-4"><RefreshCw className="h-4 w-4" />Retry</button></div>
-        : admins.length === 0 ? <p className="py-10 text-ink-soft">No admin accounts yet. Use “Add admin” to create the first one.</p>
+        : admins.length === 0 ? <p className="py-10 text-ink-soft">No staff accounts yet. Use “Add staff” to create the first one.</p>
         : <ul className="divide-y divide-rule">
           {admins.map(admin => (
             <li key={admin._id} className="grid gap-x-6 gap-y-2 py-5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
@@ -93,7 +101,7 @@ const AdminManagement = () => {
                 <p className="text-sm text-ink-soft break-words">{admin.email}{admin.department && <span className="text-ink-faint"> · {admin.department}</span>}</p>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-soft">
-                <span className="status-pill"><span aria-hidden="true" className={`status-dot ${!admin.isActive ? 'bg-stone-400' : admin.role === 'super_admin' ? 'bg-navy' : 'bg-emerald-600'}`} />{!admin.isActive ? 'Deactivated' : admin.role === 'super_admin' ? 'Super admin' : 'Active'}</span>
+                <span className="status-pill"><span aria-hidden="true" className={`status-dot ${!admin.isActive ? 'bg-stone-400' : admin.role === 'super_admin' ? 'bg-navy' : 'bg-emerald-600'}`} />{!admin.isActive ? 'Deactivated' : staffRoleLabels[admin.role] || 'Staff'}</span>
                 <span className="font-mono text-[11px] text-ink-faint">Added {formatDate(admin.createdAt)}</span>
               </div>
               <div className="sm:justify-self-end">
@@ -113,13 +121,14 @@ const AdminManagement = () => {
       </section>
 
       {showForm && (
-        <ConfirmationDialog title="Add an admin" busy={actionLoading === 'create'} onClose={closeForm} formId="create-admin-form" confirmLabel="Create admin account">
+        <ConfirmationDialog title="Add a staff member" busy={actionLoading === 'create'} onClose={closeForm} formId="create-admin-form" confirmLabel="Create account">
           <p>They’ll sign in with this email and the temporary password, and should change it after their first sign-in.</p>
           {formError && <p role="alert" className="mt-4 border-l-2 border-red-700 bg-red-50 p-3 text-red-800">{formError}</p>}
           <form id="create-admin-form" onSubmit={handleCreateAdmin} className="mt-5 space-y-4">
+            <fieldset><legend className="field-label">Role</legend><div className="mt-1.5 space-y-1.5">{Object.keys(roleDuties).map(role => <label key={role} className={`flex cursor-pointer items-start gap-3 rounded-md border p-2.5 ${form.role === role ? 'border-ink bg-paper' : 'border-rule'}`}><input type="radio" name="role" value={role} checked={form.role === role} onChange={update('role')} className="mt-1 accent-navy" /><span><span className="block text-sm font-medium text-ink">{staffRoleLabels[role]}</span><span className="block text-xs font-normal text-ink-faint">{roleDuties[role]}</span></span></label>)}</div></fieldset>
             <label className="field-label">Full name<input type="text" required autoComplete="off" placeholder="e.g. Dr. Imran Khan" className={`${inputClass} mt-1.5`} value={form.fullName} onChange={update('fullName')} /></label>
             <label className="field-label">University email<input type="email" required autoComplete="off" placeholder="e.g. i.khan@university.edu.pk" className={`${inputClass} mt-1.5`} value={form.email} onChange={update('email')} /></label>
-            <label className="field-label">Department <span className="font-normal text-ink-faint">(optional)</span><input type="text" placeholder="e.g. Registrar’s Office" className={`${inputClass} mt-1.5`} value={form.department} onChange={update('department')} /></label>
+            <label className="field-label">Department <span className="font-normal text-ink-faint">(optional)</span><input type="text" placeholder="e.g. Examination Branch" className={`${inputClass} mt-1.5`} value={form.department} onChange={update('department')} /></label>
             <div>
               <label htmlFor="admin-password" className="field-label">Temporary password</label>
               <div className="relative mt-1.5">
@@ -137,8 +146,8 @@ const AdminManagement = () => {
       )}
 
       {confirmToggle && (
-        <ConfirmationDialog title={confirmToggle.isActive ? 'Deactivate this admin?' : 'Reactivate this admin?'} busy={actionLoading === confirmToggle._id} danger={confirmToggle.isActive} onClose={() => setConfirmToggle(null)} onConfirm={handleToggle} confirmLabel={confirmToggle.isActive ? 'Deactivate' : 'Reactivate'}>
-          <p className="break-words">{confirmToggle.isActive ? `${confirmToggle.fullName} will lose access to the admin portal immediately. Their past reviews stay on record.` : `${confirmToggle.fullName} will be able to sign in to the admin portal again.`}</p>
+        <ConfirmationDialog title={confirmToggle.isActive ? 'Deactivate this account?' : 'Reactivate this account?'} busy={actionLoading === confirmToggle._id} danger={confirmToggle.isActive} onClose={() => setConfirmToggle(null)} onConfirm={handleToggle} confirmLabel={confirmToggle.isActive ? 'Deactivate' : 'Reactivate'}>
+          <p className="break-words">{confirmToggle.isActive ? `${confirmToggle.fullName} will lose access to the staff portal immediately. Their past decisions stay on record.` : `${confirmToggle.fullName} will be able to sign in to the staff portal again.`}</p>
         </ConfirmationDialog>
       )}
     </div>

@@ -1,48 +1,56 @@
-# UniAttest - Blockchain-Based Degree Attestation System
+# UniAttest - University Degree Attestation System
 
-UniAttest is a full-stack degree attestation portal for students, university staff, and public verifiers. It issues PDF certificates with verifiable issuance details, stores degree hashes on Polygon Amoy, and lets employers verify credentials without logging in.
+UniAttest is a university degree attestation system modelled on how a registrar's attestation cell works. Graduates request attestation online and pay by bank challan. The request then passes through document scrutiny, verification against university records, and registrar approval. The output is an attestation certificate that employers can verify by attestation number, hash, or QR code. Certificate hashes can optionally be anchored on Polygon Amoy or a local test chain.
 
 ## Features
 
-- Student registration and JWT login
-- Multi-step student application flow with OCR-assisted field extraction
-- Optional ID photo + selfie face verification before document upload
-- Resumable application drafts, explicit submission, and withdrawal/reapply flow
-- Role-based admin workflow for review, approval, rejection, and issuance
-- Canonical SHA-256 degree hash generation on issuance
-- Optional Polygon Amoy smart contract storage
-- Public verification by local degree hash or Amoy transaction hash
-- PDF certificates generated with PDFKit
-- Certificate QR codes that open the UniAttest verification page
-- Super admin account management
+- Student accounts with name, father's name, CNIC, and registration number
+- Attestation requests for a degree, a transcript, or both, with normal or urgent processing
+- Application numbers (`UA-YYYY-NNNNNN`) and bank fee challans (`CH-YYYY-NNNNNN`) with a printable three-part voucher
+- A document checklist per request type: degree, transcript, CNIC front and back, photograph, paid challan, and optional extras
+- A declaration before submission; resumable drafts; withdrawal
+- Staged review with separate staff roles: document scrutiny, records verification, registrar approval
+- Objections: any stage can return a request to the applicant with a reason and flagged documents; the applicant corrects and resubmits
+- Staff verification aids: OCR comparison of a degree or transcript with the declared particulars, and face comparison of the photograph with the CNIC portrait
+- A full activity history recording who did what, and when
+- Attestation certificates (PDF) with an attestation number, particulars table, registrar signature block, QR code, and SHA-256 verification hash
+- Public verification by attestation number or hash, with the CNIC masked
+- Email notifications for submission, objection, resubmission, rejection, and issuance; password reset by email
+- Optional Polygon Amoy or local Hardhat anchoring of certificate hashes
 
 ## System Flow
 
 ```text
-Student registers -> saves application draft
-        |
-Optional OCR + face verification
-        |
-Student uploads documents -> explicitly submits for review
-        |
-Admin reviews -> approval
-        |
-Admin issues degree
-        |
-One canonical SHA-256 hash is generated and submitted to Polygon Amoy
-        |
-Student downloads PDF certificate with hash, transaction hash, and QR code
-        |
-Employer verifies using local hash or Amoy transaction hash
+Student: choose request type and processing -> enter particulars -> upload documents
+         -> print challan, pay at bank, enter payment details, upload paid challan
+         -> accept declaration -> submit
+                     |
+Document scrutiny (scrutiny officer): accept or flag each document, verify fee
+                     |                         \
+Records verification (examination officer)     objection -> student corrects -> resubmits
+  checks particulars against the result gazette  (from any stage)        back to scrutiny
+                     |
+Registrar approval: approve and issue
+                     |
+Attestation certificate: number + snapshot hash (+ optional blockchain), PDF with QR
+                     |
+Employer verifies by attestation number, hash, or QR
 ```
+
+Any stage can also reject a request outright. Rejection is final; an objection is for problems the applicant can fix.
 
 ## Roles
 
-| Role | What they can do | Created by |
+| Role | Acts on | Created by |
 |---|---|---|
-| `student` | Submit applications, upload documents, track status, download certificates | Public registration |
-| `admin` | Review applications and manage workflow actions allowed by routes | Super admin |
-| `super_admin` | Manage admins and all admin-level actions | `setup-admin.js` |
+| `student` | Their own requests: details, documents, payment, submission, objection responses | Public registration |
+| `scrutiny` | Document scrutiny: accept or flag documents, verify the fee, run OCR and face checks, forward, object, reject | Super admin |
+| `examination` | Records verification: confirm particulars against result records with a reference, forward, object, reject | Super admin |
+| `registrar` | Registrar approval: approve and issue, object, reject; retry interrupted issuance | Super admin |
+| `admin` | Every stage, for offices without separate staff | Super admin |
+| `super_admin` | Every stage, plus staff accounts | `setup-admin.js` |
+
+All staff can read every request and its history. Only the roles listed for a stage can act on it.
 
 ## Tech Stack
 
@@ -54,8 +62,7 @@ Employer verifies using local hash or Amoy transaction hash
 | Auth | JWT access tokens and refresh tokens |
 | Blockchain | Solidity, Hardhat, Polygon Amoy |
 | Certificates | PDFKit, QRCode |
-| OCR and AI support | Tesseract/OCR routes, Flask face service |
-| Face verification | DeepFace, OpenCV |
+| Staff verification aids | Tesseract OCR; Flask face service with DeepFace (RetinaFace detector, Facenet model) |
 | File uploads | Multer |
 
 ## Project Structure
@@ -64,25 +71,25 @@ Employer verifies using local hash or Amoy transaction hash
 uni-attest/
   client/                         React + Vite frontend
     src/
-      components/
-        FaceVerification.jsx
-        Navbar.jsx
-        ProtectedRoute.jsx
+      components/                 Layout, record sections, dialogs
       pages/
-        VerifyDegree.jsx
-        student/
-        admin/
+        student/                  Overview, request wizard, fee challan
+        admin/                    Staff console, staff accounts
+        ApplicationDetail.jsx     Request record with the stage actions for each role
+        VerifyDegree.jsx          Public verification
+      utils/workflow.js           Shared workflow labels and helpers
   server/                         Express API
     src/
-      controllers/                auth, student, admin, verify, face
-      middleware/
-      models/                     User, Application, Document, Degree
-      routes/                     /api/auth /api/student /api/admin /api/verify /api/face
-      services/                   hash, blockchain, pdf
+      controllers/                auth, student, admin (staff), verify
+      models/                     User, Application, Document, Degree, Counter
+      routes/                     /api/auth /api/student /api/admin /api/files /api/verify /api/config
+      services/
+        workflow.js               Request types, fees, documents, stages, and role permissions
+        issuance.js               Registrar approval and certificate issuance
+        migrate.js                Moves earlier records onto the staged workflow at startup
+        pdf.js, hash.js, notify.js, ocrService.js, faceService.js, blockchain.js
   blockchain/                     Hardhat smart contract project
-    contracts/DegreeAttestation.sol
-    scripts/deploy.js
-  face_service.py                 Optional Flask face verification service
+  face_service.py                 Flask face comparison service used by the scrutiny tool
 ```
 
 ## Setup
@@ -173,14 +180,18 @@ npm run dev
 
 Open `http://localhost:5173`.
 
-### 6. Optional face verification service
+### 6. Create staff accounts
+
+Sign in as the super admin, open **Staff**, and add a scrutiny officer, an examination officer, and a registrar. For a one-person office, create an **Administrator**, who can act at every stage.
+
+### 7. Optional face comparison service
 
 ```bash
-pip install flask flask-cors opencv-python numpy deepface
+pip install flask flask-cors opencv-python numpy deepface tf-keras retina-face
 python face_service.py
 ```
 
-The Express backend calls `FACE_SERVICE_URL`, defaulting to `http://127.0.0.1:5001`.
+The scrutiny officer's **Compare photograph with CNIC** tool calls `FACE_SERVICE_URL`, defaulting to `http://127.0.0.1:5001`. The first comparison after starting downloads or loads the models and can take a minute. Without the service, everything else works; the tool reports that the service is not running.
 
 ## Local blockchain development (no faucet required)
 
@@ -193,7 +204,7 @@ npm.cmd run dev:local
 
 This one command compiles and deploys the real contract to Hardhat on `127.0.0.1:8545` (chain ID 1337), then starts Express on port 5000 and Vite on port 5173. It uses Hardhat's first pre-funded test account through the localhost RPC; no MetaMask private key, mining, or purchased tokens are needed. Dependencies must already be installed in `server`, `client`, and `blockchain`.
 
-Open `http://localhost:5173` and use your existing accounts. Create a new application, upload documents, submit, review, approve, and issue. Verification should say **Verified on Local Test Blockchain**. These are development proofs, not public Amoy records. Local transactions do not link to Amoy Polygonscan.
+Open `http://localhost:5173` and use your existing accounts. Submit a request, then take it through scrutiny, records verification, and registrar approval. Verification should say **Verified on Local Test Blockchain**. These are development proofs, not public Amoy records. Local transactions do not link to Amoy Polygonscan.
 
 Keep the terminal running. Ctrl+C stops all three development processes. Restarting creates a new empty local chain; old local-chain records remain in MongoDB but their blockchain proof will no longer be found. Local records store their chain ID and contract address and cannot be silently verified against another network or contract. Use a fresh application for a new test run.
 
@@ -219,17 +230,17 @@ npx hardhat run scripts/deploy.js --network amoy
 
 Copy the deployed contract address into `server/.env` as `CONTRACT_ADDRESS`.
 
-Issuance first saves an immutable snapshot of the certificate details and its canonical SHA-256 hash. The application enters `issuing` while a worker holds a ten-minute lease. A failed operation stays retryable using the same admin issue action, snapshot, and hash. An abandoned lease can be reclaimed after ten minutes. Once issuance starts, the application cannot be rejected or withdrawn.
+Registrar approval issues the certificate. Issuance first saves an immutable snapshot of the attested particulars (name, father's name, CNIC, registration number, session, degree, year, CGPA, request type, and attestation number) and its canonical SHA-256 hash. The application enters `issuing` while a worker holds a ten-minute lease. A failed operation stays retryable using the same registrar action, snapshot, and hash. An abandoned lease can be reclaimed after ten minutes. Once issuance starts, the application cannot be rejected, objected to, or withdrawn.
 
 When blockchain credentials are configured, issuance requires confirmed on-chain storage. `BLOCKCHAIN_REQUIRED=true` also enforces this when configuration is missing. For local-only issuance, remove `PRIVATE_KEY` and `CONTRACT_ADDRESS` and leave `BLOCKCHAIN_REQUIRED=false`. PDF generation must succeed before issuance completes. Retries reconcile an existing chain record and reuse any saved transaction hash.
 
-The certificate QR opens the UniAttest verification page. The page distinguishes local snapshot/hash integrity from live Amoy verification. Blockchain failure or a missing on-chain record never reports a blockchain-backed degree as verified. Historical degree records without a saved snapshot are flagged `legacy_unverified`; they require manual comparison with original issuance evidence. The application does not fabricate snapshots from current profile data or automatically rewrite historical hashes.
+The certificate QR opens the UniAttest verification page. Verification also accepts the attestation number (`ATT-YYYY-NNNNNN`) and masks all but the last digits of the CNIC. The page distinguishes local snapshot/hash integrity from live Amoy verification. Blockchain failure or a missing on-chain record never reports a blockchain-backed degree as verified. Historical degree records without a saved snapshot are flagged `legacy_unverified`; they require manual comparison with original issuance evidence. The application does not fabricate snapshots from current profile data or automatically rewrite historical hashes.
 
-Both `admin` and `super_admin` can review, approve, and issue. Department and registrar roles are not currently separate permissions. Issued degrees cannot be rejected; revocation requires a future explicit workflow and contract change.
+Issued certificates cannot be rejected; revocation requires a future explicit workflow and contract change. Certificates issued before the staged workflow keep their original snapshot and hash and still verify.
 
-Supporting documents and selfies are private. Owners and admins can fetch them through authenticated `/api/files/documents/:id` and `/api/files/photos/:userId` routes. Only certificates with valid saved snapshots are publicly downloadable. Production hosting must proxy `/api` and `/uploads/certificates` to Express and must not expose the upload directory directly.
+Supporting documents are private. Owners and staff can fetch them through authenticated `/api/files/documents/:id` and `/api/files/photos/:userId` routes. Only certificates with valid saved snapshots are publicly downloadable. Production hosting must proxy `/api` and `/uploads/certificates` to Express and must not expose the upload directory directly.
 
-Face verification requires exactly one detected face in each image and uses the model's default comparison threshold. It compares two supplied images; it does not establish document authenticity or provide liveness detection. The displayed similarity score is not a calibrated probability. The Python service binds to localhost by default; use `FACE_SERVICE_HOST` only when deployment requires a different interface.
+Face comparison and OCR are aids for the scrutiny officer, not decisions. Face comparison needs the CNIC front and photograph as images; it compares the largest face on the CNIC with the single face in the photograph using the model's default threshold. It does not establish document authenticity or provide liveness detection. OCR compares what it can read on a degree or transcript with the declared particulars and keeps the result on the record. The displayed similarity score is not a calibrated probability. The Python service binds to localhost by default; use `FACE_SERVICE_HOST` only when deployment requires a different interface.
 
 ## API Endpoints
 
@@ -250,44 +261,42 @@ Face verification requires exactly one detected face in each image and uses the 
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/applications` | Get current student's applications |
-| POST | `/applications` | Save a new draft |
-| PATCH | `/applications/:id` | Edit your draft details |
-| POST | `/applications/:id/submit` | Submit a draft with documents for review |
-| GET | `/applications/:id` | Get one application |
-| POST | `/applications/:id/documents` | Upload application documents |
-| PUT | `/applications/:id/documents/:documentId` | Replace a draft document (`document` multipart field) |
-| DELETE | `/applications/:id/documents/:documentId` | Remove a draft document |
-| PATCH | `/applications/:id/withdraw` | Withdraw a draft or pending application |
-| GET | `/degrees` | Get issued degrees |
+| GET | `/applications` | Your requests |
+| POST | `/applications` | Start a draft request; assigns the application and challan numbers |
+| GET | `/applications/:id` | One request |
+| PATCH | `/applications/:id` | Edit details while a draft or answering an objection; the fee follows the request type |
+| PATCH | `/applications/:id/payment` | Record the payment date and bank reference |
+| POST | `/applications/:id/documents` | Upload a document (`kind` and `document` multipart fields); a second upload of the same kind replaces it |
+| DELETE | `/applications/:id/documents/:documentId` | Remove a document |
+| POST | `/applications/:id/submit` | Submit or resubmit with `{ "declaration": true }`; lists anything missing |
+| PATCH | `/applications/:id/withdraw` | Withdraw a draft, a request awaiting scrutiny, or one with an objection |
+| GET | `/degrees` | Issued attestation certificates |
 
-### Admin - `/api/admin`
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/dashboard` | Dashboard statistics |
-| GET | `/applications` | Paginated search; `view=active`, `history`, or `all`, plus optional `status` |
-| GET | `/applications/:id` | Get one application |
-| PATCH | `/applications/:id/review` | Start review |
-| PATCH | `/applications/:id/approve` | Approve application |
-| PATCH | `/applications/:id/reject` | Reject application |
-| POST | `/applications/:id/issue` | Issue degree and certificate |
-| GET | `/degrees` | List issued degrees |
-| GET | `/admins` | List admins |
-| POST | `/admins` | Create admin |
-| PATCH | `/admins/:id/toggle` | Activate/deactivate admin |
-
-### Verify - `/api/verify`
+### Staff - `/api/admin`
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/:hash` | Verify by degree hash or Amoy transaction hash |
+| GET | `/dashboard` | Counts by status, your queue size, and your stages |
+| GET | `/applications` | Paginated search; `view=queue` (your stages), `active`, `history`, or `all`, plus `status` and `search` (name, application no., CNIC, registration no.) |
+| GET | `/applications/:id` | One request, with `canAct` for your role |
+| PATCH | `/applications/:id/documents/:documentId/review` | Scrutiny: mark a document `accepted`, `flagged` (with a note), or `pending` |
+| PATCH | `/applications/:id/fee` | Scrutiny: verify the fee payment |
+| POST | `/applications/:id/documents/:documentId/ocr` | Scrutiny aid: read a degree or transcript and compare it with the declared particulars |
+| POST | `/applications/:id/face-check` | Scrutiny aid: compare the photograph with the CNIC portrait |
+| POST | `/applications/:id/forward` | Scrutiny → records verification (needs every required document accepted and the fee verified); records → registrar (needs `recordReference`) |
+| POST | `/applications/:id/objection` | Return to the applicant with a `reason`; flagged documents are marked for replacement |
+| POST | `/applications/:id/reject` | Reject with a `reason` |
+| POST | `/applications/:id/issue` | Registrar: approve and issue the certificate (also retries interrupted issuance) |
+| GET | `/degrees` | Issued certificates |
+| GET / POST | `/admins` | Super admin: list or create staff with a `role` |
+| PATCH | `/admins/:id/toggle` | Super admin: deactivate or reactivate staff |
 
-### Face Verification - `/api/face`
+### Public
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/verify` | Verify ID photo and selfie |
+| GET | `/api/verify/:reference` | Verify by attestation number, certificate hash, or transaction hash |
+| GET | `/api/config` | Request types, fees, document kinds, stages, and bank details for the challan |
 
 ## Environment Variables
 
@@ -307,15 +316,19 @@ Face verification requires exactly one detected face in each image and uses the 
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Optional | First super-admin setup overrides |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | Optional | Enables student status and password reset emails; all except the port are required to turn them on. Port 465 uses TLS, others STARTTLS |
 | `MAIL_FROM` | Optional | Sender address for status emails, default `SMTP_USER` |
+| `FEE_BANK_NAME` / `FEE_ACCOUNT_TITLE` / `FEE_ACCOUNT_NUMBER` | Optional | Bank details printed on the fee challan |
+| `FEE_CHALLAN_VALID_DAYS` | Optional | Days a challan stays payable, default 15 |
+| `FEE_<TYPE>_<SPEED>` | Optional | Override a fee in PKR, e.g. `FEE_DEGREE_URGENT=5000`. Types: `DEGREE`, `TRANSCRIPT`, `DEGREE_TRANSCRIPT`; speeds: `NORMAL`, `URGENT`. Defaults: 2000/4000, 1500/3000, 3000/6000 |
 
 ## Roadmap
 
 - [x] Student registration and login
-- [x] Student application workflow
-- [x] OCR-assisted application details
-- [x] Face verification integration
-- [x] Pending application withdrawal
-- [x] Admin review and issuance workflow
+- [x] Attestation request wizard with document checklist
+- [x] Bank fee challan and payment verification
+- [x] Staged review: scrutiny, records verification, registrar approval
+- [x] Objections and resubmission
+- [x] Staff OCR and face comparison aids
+- [x] Attestation numbers and attestation certificates
 - [x] SHA-256 degree hash generation
 - [x] Polygon Amoy contract integration
 - [x] Public verification page
@@ -328,27 +341,31 @@ Face verification requires exactly one detected face in each image and uses the 
 - [ ] IPFS decentralized document storage
 - [ ] Production deployment
 
-## Basic application flow
+## Attestation workflow in practice
 
-1. Save application details as a draft. CGPA can be left blank.
-2. Complete or skip the optional photo comparison.
-3. Upload at least one supporting document and check the saved details. Draft files can be replaced or removed before submission.
-4. Click **Submit application for review**. Details and documents are then locked.
-5. An admin starts review, approves or rejects with a reason, and issues approved degrees.
-6. Students see status and feedback on their dashboard and can download issued certificates.
-7. Certificate QR links open verification automatically.
+1. **Request.** The student chooses degree, transcript, or both, and normal or urgent processing. The fee is shown before anything is saved.
+2. **Details.** Father's name and CNIC prefill from the account. The degree title, session, registration number, and year must match the degree. Saving creates the draft with its application and challan numbers.
+3. **Documents.** One upload per checklist item; uploading again replaces it. The photograph must be an image. Up to five optional extra documents.
+4. **Fee.** The student prints the three-part challan, pays at the bank, enters the payment date and bank reference, and uploads the stamped applicant copy.
+5. **Submit.** The review step lists anything missing, with links back to fix it. Submission requires the declaration and locks the request.
+6. **Document scrutiny.** The scrutiny officer opens each document, accepts it or flags it with a note, verifies the fee, and can run the OCR and face aids. Forwarding needs every required document accepted, none flagged, and the fee verified.
+7. **Records verification.** The examination officer compares the particulars with the result records and forwards with the reference checked, such as a gazette page.
+8. **Registrar approval.** The registrar sees both earlier findings and approves, which issues the certificate.
+9. **Objections.** At any stage before issuance, staff can raise an objection. The request returns to the student with the reason and flagged documents. Accepted documents stay accepted; replaced ones go back to "not checked"; a verified fee stays verified. Resubmission returns the request to scrutiny.
 
-Refreshing or leaving the application page preserves saved drafts and uploaded documents. Drafts are excluded from the admin review queue. One active application per student is enforced by a partial unique MongoDB index (MongoDB 6+). Existing pending records without documents remain completable but cannot enter review until documents are attached. Submitted applications can be withdrawn while pending; rejected or withdrawn applications allow a new application.
+Drafts are invisible to staff. One open request per student is enforced by a partial unique MongoDB index (MongoDB 6+). Rejected and withdrawn requests allow a new one.
 
-The admin queue opens on **Needs attention**, showing pending, in-review, approved, and interrupted issuance records, oldest submissions first, with how long each has waited. **Completed** contains issued, rejected, and withdrawn applications; **All** includes both groups. Selecting an application opens it beside the queue with all review actions; on phones the record replaces the list and the browser's Back button returns to it. While focus is in the queue, the arrow keys or J and K move between records. Search, status, page, page size, and the open record are kept in the URL. The default page size is twenty.
+The staff console opens on **My queue**: the requests at your stages, oldest first, with how long each has waited (urgent requests turn amber sooner). **In progress** shows every open request, including those waiting on the applicant; **Completed** shows attested, rejected, and withdrawn ones. Selecting a request opens it beside the queue; on phones it replaces the list and Back returns to it. While focus is in the queue, the arrow keys or J and K move between records. Search, status, page, page size, and the open record are kept in the URL.
 
-Each application has a separate detail page for its academic record, private documents, review actions, certificate, and activity history. Students open **View details & history** from their dashboard. New actions record the actor's name, role, timestamp, and relevant comments or file names atomically with the application change. Existing applications start recording with their next action; earlier history is not reconstructed. Replacing or removing files is allowed only while the application is a draft. Detached files lose download access immediately, including if disk cleanup is deferred.
+Every action records the actor's name, role, and time with the change. Students see their history without the staff aids.
+
+At startup, earlier records are moved onto this workflow: `pending` and `under_review` become scrutiny, `approved` becomes registrar approval, requests get application and challan numbers, and older documents are typed as "other". Their stage findings start with the next action.
 
 When SMTP is configured, anyone can use **Forgot password?** on the sign-in page. The emailed link works once, expires after 30 minutes, and signs out every existing session when used. The form gives the same answer whether or not an account exists. Without SMTP, the form says reset is unavailable; admins can still use `server/reset-admin-password.js`.
 
-Supporting PDFs and images open in a preview inside the application record, for both staff and the owning student, without leaving the page. Some mobile browsers can't show PDFs inline; **Download** always works.
+Documents open in a preview inside the record. Some mobile browsers can't show PDFs inline; **Download** always works.
 
-When SMTP is configured, students are emailed when their application is submitted, approved, or rejected (with the reason), and when their certificate is issued (with its public verification link). Emails are sent in the background: a mail failure is logged and never blocks or fails the action. Without SMTP settings no email is sent, and students see changes on their overview. The application does not promise a review completion date.
+When SMTP is configured, students are emailed when a request is submitted, when an objection is raised (with what to correct), when corrections are received, when a request is rejected (with the reason), and when the certificate is issued (with its attestation number and verification link). Emails are sent in the background: a mail failure is logged and never blocks the action.
 
 ## Checks
 
@@ -365,9 +382,9 @@ cd ..
 python -m unittest test_face_service.py
 ```
 
-For the browser walkthrough, run `npm run test:flow` from `server`. It uses a separate temporary MongoDB database, checks draft recovery and document replacement/removal, skips the optional photo service, tests a populated inbox with pagination and retained filters, checks activity history, performs admin review and issuance, downloads a real PDF, and checks automatic verification and desktop/tablet/mobile layout. Chromium must be available to Puppeteer. Screenshots are written to the ignored `server/test-artifacts/` directory.
+For the browser walkthrough, run `npm run test:flow` from `server`. It uses a separate temporary MongoDB database and four accounts. It runs the request wizard with draft recovery, the document checklist, the challan and payment, and submission. It then covers scrutiny with a flagged document and an objection, the student's correction and resubmission, fee verification, records verification, and registrar issuance. Finally it downloads the real PDF, verifies by attestation number, and checks queue pagination and filters, rejection on mobile, password reset, and desktop/tablet/mobile layout. Chromium must be available to Puppeteer. Screenshots are written to the ignored `server/test-artifacts/` directory.
 
-Backend tests start a disposable MongoDB instance and never use `MONGODB_URI`. The first run downloads its MongoDB binary. Blockchain tests use Hardhat's local network and do not submit Amoy transactions. Face validation tests mock the model dependencies; real biometric accuracy and liveness are outside their scope. GitHub Actions runs these checks on Windows.
+Backend tests start a disposable MongoDB instance and never use `MONGODB_URI`. The first run downloads its MongoDB binary. Blockchain tests use Hardhat's local network and do not submit Amoy transactions. Face service tests mock the model dependencies; real biometric accuracy and liveness are outside their scope. GitHub Actions runs these checks on Windows.
 
 Access tokens last 15 minutes; refresh tokens last seven days and rotate on use. A user has one stored refresh-token chain, so signing in again replaces the previous refresh session. Logout and password changes invalidate all access tokens for that user. Tokens are stored in browser local storage; applications must continue to prevent script injection.
 

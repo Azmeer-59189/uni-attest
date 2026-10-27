@@ -25,14 +25,12 @@ exports.generateCertificate = async (data, clientUrl = 'http://localhost:5173') 
   });
   const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
 
+  const issued = new Date(data.issuedAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'long', year: 'numeric' });
+  const requestLabels = { degree: 'Degree', transcript: 'Transcript', degree_transcript: 'Degree and Transcript' };
+  const documentLabel = requestLabels[data.requestType] || 'Degree';
+
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({
-      size: 'A4',
-      layout: 'landscape',
-      margins: { top: 0, bottom: 0, left: 0, right: 0 },
-      autoFirstPage: true,
-      bufferPages: true,  // buffer all pages so we can check count
-    });
+    const doc = new PDFDocument({ size: 'A4', margins: { top: 0, bottom: 0, left: 0, right: 0 }, autoFirstPage: true, bufferPages: true });
 
     const tempPath = `${filePath}.${randomUUID()}.tmp`;
     const stream = fs.createWriteStream(tempPath);
@@ -41,103 +39,81 @@ exports.generateCertificate = async (data, clientUrl = 'http://localhost:5173') 
     stream.on('error', fail);
     doc.pipe(stream);
 
-    const W = doc.page.width;   // 841.89
-    const H = doc.page.height;  // 595.28
+    const W = doc.page.width;   // 595.28
+    const H = doc.page.height;  // 841.89
+    const left = 64;
+    const width = W - left * 2;
+    const ink = '#1d2025';
+    const navy = '#1f3a5f';
+    const muted = '#6a6f77';
+    const rule = '#c9c3b6';
 
-    // ── BACKGROUND ──
-    doc.rect(0, 0, W, H).fill('#FAFAF8');
+    // Letterhead
+    doc.rect(0, 0, W, H).fill('#ffffff');
+    doc.rect(0, 0, W, 6).fill(navy);
+    doc.font('Times-Bold').fontSize(20).fillColor(ink)
+       .text(data.university || 'University', left, 52, { width, align: 'center' });
+    doc.font('Helvetica').fontSize(8.5).fillColor(muted)
+       .text('OFFICE OF THE REGISTRAR  ·  DEGREE ATTESTATION CELL', left, 80, { width, align: 'center', characterSpacing: 1.2 });
+    doc.moveTo(left, 104).lineTo(W - left, 104).lineWidth(0.75).stroke(ink);
+    doc.moveTo(left, 107).lineTo(W - left, 107).lineWidth(0.25).stroke(ink);
 
-    // Navy border
-    doc.rect(20, 20, W - 40, H - 40).lineWidth(3).stroke('#0D1B2A');
+    // Reference line
+    doc.font('Helvetica').fontSize(9).fillColor(ink);
+    doc.text(`No. ${data.attestationNumber || 'Not numbered'}`, left, 122, { width: width / 2, lineBreak: false });
+    doc.text(`Dated: ${issued}`, left + width / 2, 122, { width: width / 2, align: 'right', lineBreak: false });
 
-    // Inner gold border
-    doc.rect(28, 28, W - 56, H - 56).lineWidth(1).stroke('#C9A84C');
+    // Title
+    doc.font('Times-Bold').fontSize(17).fillColor(ink)
+       .text(`${documentLabel.toUpperCase()} ATTESTATION CERTIFICATE`, left, 160, { width, align: 'center', characterSpacing: 0.5 });
+    doc.font('Helvetica').fontSize(9).fillColor(muted).text('TO WHOM IT MAY CONCERN', left, 184, { width, align: 'center', characterSpacing: 1 });
 
-    // ── HEADER BAND ──
-    doc.rect(20, 20, W - 40, 80).fill('#0D1B2A');
+    // Statement
+    const relation = data.fatherName ? `, son/daughter of ${data.fatherName}` : '';
+    doc.font('Times-Roman').fontSize(12).fillColor(ink)
+       .text(`This is to certify that the ${documentLabel.toLowerCase()} of ${data.studentName}${relation}, particulars of which are given below, has been verified from the record of this University and is found to be genuine.`, left, 216, { width, align: 'justify', lineGap: 3 });
 
-    doc.fontSize(11).fillColor('#C9A84C').font('Helvetica')
-       .text((data.university || 'UNIVERSITY').toUpperCase(), 0, 38, { align: 'center', width: W });
+    // Particulars
+    const rows = [
+      ['Name', data.studentName],
+      ['Father’s name', data.fatherName],
+      ['CNIC', data.cnic],
+      ['Registration no.', data.registrationNumber || data.studentId],
+      ['Degree', data.program],
+      ['Department', data.department],
+      ['Session', data.session],
+      ['Year of passing', data.graduationYear],
+      ['CGPA', data.cgpa != null ? Number(data.cgpa).toFixed(2) : null]
+    ].filter(([, value]) => value != null && value !== '');
+    let y = doc.y + 22;
+    doc.moveTo(left, y).lineTo(W - left, y).lineWidth(0.5).stroke(rule);
+    for (const [label, value] of rows) {
+      doc.font('Helvetica').fontSize(9).fillColor(muted).text(label, left + 4, y + 8, { width: 150, lineBreak: false });
+      doc.font('Helvetica-Bold').fontSize(10).fillColor(ink).text(String(value), left + 160, y + 7, { width: width - 164, lineBreak: false, ellipsis: true });
+      y += 24;
+      doc.moveTo(left, y).lineTo(W - left, y).lineWidth(0.5).stroke(rule);
+    }
 
-    doc.fontSize(8).fillColor('#D8D8D0')
-       .text('DEGREE ATTESTATION PORTAL - UNIATTEST', 0, 58, { align: 'center', width: W });
+    // Signature and QR
+    const signY = y + 70;
+    doc.image(qrBuffer, left, signY - 30, { width: 92, height: 92 });
+    doc.font('Helvetica').fontSize(7.5).fillColor(muted)
+       .text('Scan to verify, or visit', left, signY + 66, { width: 160 })
+       .text(`${(clientUrl || '').replace(/^https?:\/\//, '')}/verify`, left, signY + 76, { width: 200 });
+    doc.moveTo(W - left - 180, signY + 30).lineTo(W - left, signY + 30).lineWidth(0.5).stroke(ink);
+    doc.font('Times-Bold').fontSize(11).fillColor(ink).text('Registrar', W - left - 180, signY + 36, { width: 180, align: 'center' });
+    doc.font('Helvetica').fontSize(8.5).fillColor(muted).text(data.university || 'University', W - left - 180, signY + 52, { width: 180, align: 'center' });
 
-    // ── GOLD DIVIDER ──
-    doc.moveTo(60, 120).lineTo(W - 60, 120).lineWidth(1).stroke('#C9A84C');
+    // Verification footer
+    const footY = H - 118;
+    doc.moveTo(left, footY).lineTo(W - left, footY).lineWidth(0.5).stroke(rule);
+    doc.font('Helvetica').fontSize(7.5).fillColor(muted)
+       .text('This certificate is issued electronically. Its authenticity can be confirmed online with the attestation number or the verification hash below; no signature or stamp is required for online verification.', left, footY + 10, { width, lineGap: 1.5 });
+    doc.font('Courier').fontSize(7).fillColor(ink)
+       .text(`Verification hash: ${data.hash}`, left, footY + 40, { width, lineBreak: false })
+       .text(data.blockchainTx ? `${data.blockchainNetwork === 'hardhat_local' ? 'Local test chain' : 'Polygon Amoy'} transaction: ${data.blockchainTx}` : 'Blockchain record: not used for this certificate', left, footY + 52, { width, lineBreak: false });
+    doc.rect(0, H - 6, W, 6).fill(navy);
 
-    // ── TITLE ──
-    doc.fontSize(11).fillColor('#C9A84C').font('Helvetica')
-       .text('THIS IS TO CERTIFY THAT', 0, 135, { align: 'center', width: W });
-
-    // ── STUDENT NAME ──
-    doc.fontSize(36).fillColor('#0D1B2A').font('Helvetica-Bold')
-       .text(data.studentName, 0, 158, { align: 'center', width: W });
-
-    const nameWidth = doc.widthOfString(data.studentName);
-    const nameX = (W - nameWidth) / 2;
-    doc.moveTo(nameX, 200).lineTo(nameX + nameWidth, 200).lineWidth(0.5).stroke('#C9A84C');
-
-    // ── BODY TEXT ──
-    doc.fontSize(12).fillColor('#444444').font('Helvetica')
-       .text(
-         'having successfully completed all requirements, has been awarded the degree of',
-         80, 215, { align: 'center', width: W - 160 }
-       );
-
-    // ── PROGRAM ──
-    doc.fontSize(22).fillColor('#0D1B2A').font('Helvetica-Bold')
-       .text(data.program, 0, 240, { align: 'center', width: W });
-
-    // ── DEPARTMENT & YEAR ──
-    doc.fontSize(11).fillColor('#666666').font('Helvetica')
-       .text(
-         `Department of ${data.department}  |  Graduation Year: ${data.graduationYear}${data.cgpa != null ? `  |  CGPA: ${data.cgpa}` : ''}`,
-         0, 272, { align: 'center', width: W }
-       );
-
-    // ── GOLD DIVIDER ──
-    doc.moveTo(60, 298).lineTo(W - 60, 298).lineWidth(1).stroke('#C9A84C');
-
-    // ── FOOTER SECTION ──
-    const footerY = 315;
-
-    // Issue date (left)
-    doc.fontSize(9).fillColor('#888888').font('Helvetica')
-       .text('DATE OF ISSUE', 80, footerY, { width: 180, align: 'center' });
-    doc.fontSize(11).fillColor('#0D1B2A').font('Helvetica-Bold')
-       .text(
-         new Date(data.issuedAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'long', year: 'numeric' }),
-         80, footerY + 14, { width: 180, align: 'center' }
-       );
-
-    // Signature line (center)
-    doc.moveTo(W / 2 - 80, footerY + 30).lineTo(W / 2 + 80, footerY + 30).lineWidth(0.5).stroke('#0D1B2A');
-    doc.fontSize(9).fillColor('#888888').font('Helvetica')
-       .text('AUTHORIZED SIGNATORY', W / 2 - 80, footerY + 34, { width: 160, align: 'center' });
-    doc.fontSize(10).fillColor('#0D1B2A').font('Helvetica-Bold')
-       .text('Registrar', W / 2 - 80, footerY + 47, { width: 160, align: 'center' });
-
-    // QR code (right)
-    doc.image(qrBuffer, W - 200, footerY - 8, { width: 80, height: 80 });
-    doc.fontSize(7).fillColor('#888888').font('Helvetica')
-       .text('Verify certificate', W - 200, footerY + 74, { width: 80, align: 'center' });
-
-    const stripX = 60;
-    const stripY = H - 86;
-    const stripW = W - 120;
-    const line1 = `Verification Hash: ${data.hash}`;
-    const line2 = data.blockchainTx
-      ? `${data.blockchainNetwork === 'hardhat_local' ? 'Local Test Chain' : 'Amoy'} Transaction: ${data.blockchainTx}`
-      : 'Blockchain Transaction: Not available';
-
-    doc.rect(stripX, stripY, stripW, 48).fill('#F1EFE6').stroke('#C9A84C');
-    doc.fontSize(6.5).fillColor('#0D1B2A').font('Helvetica')
-       .text(line1, stripX + 10, stripY + 18, { width: stripW - 20, lineBreak: false });
-
-    doc.fontSize(6.5).fillColor('#0D1B2A').font('Helvetica')
-       .text(line2, stripX + 10, stripY + 28, { width: stripW - 20, lineBreak: false });
-
-    // Flush and end — only one page
     doc.flushPages();
     doc.end();
 

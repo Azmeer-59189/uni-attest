@@ -6,12 +6,10 @@ const mongoose = require('mongoose');
 const path = require('path');
 require('dotenv').config();
 
-const faceRoutes = require('./routes/face');
 const authRoutes = require('./routes/auth');
 const studentRoutes = require('./routes/student');
 const adminRoutes = require('./routes/admin');
 const verifyRoutes = require('./routes/verify');
-const ocrRoutes = require('./routes/ocr');          // ← ADD THIS
 const errorHandler = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
 
@@ -28,10 +26,14 @@ app.use(cors({
 }));
 
 // Rate limiting
+// A broad ceiling against floods. Sign-in has its own stricter limit on failed attempts (routes/auth.js).
+// One page can make several calls, and a whole office may share one IP, so keep this generous.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: 'Too many requests from this IP, please try again later.'
+  max: Number(process.env.RATE_LIMIT_MAX) || 2000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests from this network. Wait a few minutes and try again.' }
 });
 app.use(limiter);
 app.locals.rateLimiter = limiter;
@@ -58,12 +60,12 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.locals.loginLimiter = authRoutes.loginLimiter;
 app.use('/api/files', require('./routes/files'));
 app.use('/api/student', studentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/verify', verifyRoutes);
-app.use('/api/ocr', ocrRoutes);
-app.use('/api/face', faceRoutes);               // ← ADD THIS
+app.get('/api/config', (req, res) => res.json(require('./services/workflow').publicConfig()));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -79,7 +81,8 @@ const startServer = async () => {
     const chainReady = await require('./services/blockchain').initialize();
     if (!chainReady && process.env.BLOCKCHAIN_NETWORK === 'local') throw new Error('Local blockchain is not ready. Start the project with npm run dev:local from the project root.');
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/degree_attestation');
-    await Promise.all([require('./models/Application').init(), require('./models/Degree').init(), require('./models/User').init()]);
+    await Promise.all([require('./models/Degree').init(), require('./models/User').init()]);
+    await require('./services/migrate').run();
     logger.info('MongoDB connected successfully.');
 
     app.listen(PORT, () => {

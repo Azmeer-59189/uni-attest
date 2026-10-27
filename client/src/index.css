@@ -73,13 +73,15 @@
 .status-dot { width: .5rem; height: .5rem; border-radius: 999px; flex-shrink: 0; }
 
 /* Student progress strip. */
-.progress-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid #dcd7cc; }
+.progress-strip { display: grid; grid-template-columns: repeat(var(--steps, 4), minmax(0, 1fr)); gap: 0 .75rem; border-top: 1px solid #dcd7cc; }
 .progress-strip li { position: relative; padding-top: .9rem; font-size: .8125rem; color: #6a6f77; }
 .progress-strip li::before { content: ''; position: absolute; top: -1px; left: 0; right: 0; height: 3px; background: transparent; }
 .progress-strip li[data-state='done'] { color: #1d2025; }
 .progress-strip li[data-state='done']::before { background: #1d2025; }
 .progress-strip li[data-state='current'] { color: #1f3a5f; font-weight: 600; }
 .progress-strip li[data-state='current']::before { background: #2f5585; }
+.progress-strip li[data-state='paused'] { color: #92400e; font-weight: 600; }
+.progress-strip li[data-state='paused']::before { background: #d97706; }
 .progress-strip span { display: block; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: .6875rem; font-weight: 400; color: #6a6f77; margin-bottom: .15rem; }
 
 /* Issued certificate, presented as a document. */
@@ -144,6 +146,10 @@ kbd { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: .6875rem
   .record-guidance { flex-direction: column; align-items: start; gap: 1rem; }
   .record-fields { grid-template-columns: minmax(0, 1fr); }
   .progress-strip li { font-size: .75rem; }
+  .progress-strip { grid-template-columns: minmax(0, 1fr); gap: 0; border-top: 0; }
+  .progress-strip li { padding: .4rem 0 .4rem .9rem; border-left: 1px solid #dcd7cc; }
+  .progress-strip li::before { top: 0; bottom: 0; left: -1px; right: auto; width: 3px; height: auto; }
+  .progress-strip span { display: inline; margin-right: .5rem; }
 }
 
 /* Admin management keeps the ruled register layout. */
@@ -161,4 +167,26 @@ kbd { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: .6875rem
   .staff-office { flex-wrap: wrap; letter-spacing: .06em; gap: .5rem; }
   .staff-record > [role='button'] { flex-wrap: wrap; }
   .staff-record > [role='button'] > .flex-1 { flex-basis: calc(100% - 2rem); }
+}
+
+/* Fee challan: three identical copies, cut apart after printing. */
+.challan { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; background: white; border: 1px solid #bdb6a8; }
+.challan-copy { display: flex; flex-direction: column; padding: 1.25rem; min-width: 0; }
+.challan-copy + .challan-copy { border-left: 1px dashed #bdb6a8; }
+.challan-fields { margin-top: 1rem; border-top: 1px solid #1d2025; }
+.challan-fields div { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: .5rem; padding: .3rem 0; border-bottom: 1px solid #ebe7de; font-size: .75rem; }
+.challan-fields dt { color: #6a6f77; }
+.challan-fields dd { color: #1d2025; overflow-wrap: anywhere; }
+.challan-amount { display: flex; justify-content: space-between; align-items: baseline; margin-top: .75rem; padding: .5rem .6rem; background: #f4f2ed; font-size: .8125rem; color: #1d2025; }
+@media (max-width: 899px) {
+  .challan { grid-template-columns: minmax(0, 1fr); }
+  .challan-copy + .challan-copy { border-left: 0; border-top: 1px dashed #bdb6a8; }
+}
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  .topbar, footer, .no-print { display: none !important; }
+  body, .app-shell { background: white !important; }
+  main { padding: 0 !important; max-width: none !important; animation: none !important; }
+  .challan { grid-template-columns: repeat(3, minmax(0, 1fr)); border-color: #1d2025; }
+  .challan-copy + .challan-copy { border-left: 1px dashed #1d2025; border-top: 0; }
 }
