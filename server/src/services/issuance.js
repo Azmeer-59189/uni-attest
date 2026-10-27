@@ -5,6 +5,7 @@ const hashService = require('./hash');
 const blockchain = require('./blockchain');
 const pdf = require('./pdf');
 const activity = require('./activity');
+const { notify } = require('./notify');
 const User = require('../models/User');
 
 const failure = (statusCode, message) => Object.assign(new Error(message), { statusCode });
@@ -82,6 +83,7 @@ exports.issue = async (applicationId, issuerId, actor) => {
       $push: { history: activity(actor, 'degree_issued') }
     });
     if (!result.matchedCount) throw failure(409, 'Issuance lease changed. Reload the application and retry.');
+    notify('issued', { application, degree });
     return degree;
   } catch (error) {
     if (degree) await Degree.updateOne({ _id: degree._id }, { $set: { issuanceError: 'Issuance incomplete. Retry the issue action.' } }).catch(() => {});

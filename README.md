@@ -304,6 +304,8 @@ Face verification requires exactly one detected face in each image and uses the 
 | `CONTRACT_ADDRESS` | Optional | Deployed DegreeAttestation contract |
 | `BLOCKCHAIN_REQUIRED` | Optional | Require blockchain-backed issuance even without credentials |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Optional | First super-admin setup overrides |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | Optional | Enables student status emails; all except the port are required to turn them on. Port 465 uses TLS, others STARTTLS |
+| `MAIL_FROM` | Optional | Sender address for status emails, default `SMTP_USER` |
 
 ## Roadmap
 
@@ -318,7 +320,7 @@ Face verification requires exactly one detected face in each image and uses the 
 - [x] Public verification page
 - [x] PDF certificate generation
 - [x] Certificate QR code with UniAttest verification lookup
-- [ ] Email notifications
+- [x] Email notifications
 - [x] Authenticated admin document download
 - [ ] Inline admin document preview
 - [ ] IPFS decentralized document storage
@@ -336,11 +338,11 @@ Face verification requires exactly one detected face in each image and uses the 
 
 Refreshing or leaving the application page preserves saved drafts and uploaded documents. Drafts are excluded from the admin review queue. One active application per student is enforced by a partial unique MongoDB index (MongoDB 6+). Existing pending records without documents remain completable but cannot enter review until documents are attached. Submitted applications can be withdrawn while pending; rejected or withdrawn applications allow a new application.
 
-The admin inbox opens on **Needs attention**, showing pending, in-review, approved, and interrupted issuance records, oldest submissions first. **Completed** contains issued, rejected, and withdrawn applications; **All records** includes both groups. Search, status, page, and page size are preserved in the URL when opening an application and returning to the inbox. The default page size is ten.
+The admin queue opens on **Needs attention**, showing pending, in-review, approved, and interrupted issuance records, oldest submissions first, with how long each has waited. **Completed** contains issued, rejected, and withdrawn applications; **All** includes both groups. Selecting an application opens it beside the queue with all review actions; on phones the record replaces the list and the browser's Back button returns to it. While focus is in the queue, the arrow keys or J and K move between records. Search, status, page, page size, and the open record are kept in the URL. The default page size is twenty.
 
 Each application has a separate detail page for its academic record, private documents, review actions, certificate, and activity history. Students open **View details & history** from their dashboard. New actions record the actor's name, role, timestamp, and relevant comments or file names atomically with the application change. Existing applications start recording with their next action; earlier history is not reconstructed. Replacing or removing files is allowed only while the application is a draft. Detached files lose download access immediately, including if disk cleanup is deferred.
 
-Students can refresh their dashboard to see changes. The application does not currently send email notifications or promise a review completion date.
+When SMTP is configured, students are emailed when their application is submitted, approved, or rejected (with the reason), and when their certificate is issued (with its public verification link). Emails are sent in the background: a mail failure is logged and never blocks or fails the action. Without SMTP settings no email is sent, and students see changes on their overview. The application does not promise a review completion date.
 
 ## Checks
 

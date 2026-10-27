@@ -20,6 +20,10 @@ async function main() {
     process.env.UNIVERSITY_NAME = 'Flow Test University';
     process.env.LOG_LEVEL = 'error';
     const app = require('../src/app');
+    // Capture status emails instead of sending them.
+    const mailbox = [];
+    require('../src/services/notify')._setTransport({ sendMail: async message => { mailbox.push(message); } });
+    const mailFor = (to, subject) => mailbox.find(mail => mail.to === to && subject.test(mail.subject));
     delete process.env.PRIVATE_KEY;
     delete process.env.CONTRACT_ADDRESS;
     process.env.BLOCKCHAIN_REQUIRED = 'false';
@@ -130,6 +134,7 @@ async function main() {
     await clickText('Submit application for review');
     await waitText('Application submitted');
     await clickText('Go to overview');
+    assert(mailFor('flow-student@example.com', /^We received your application/), 'Submission email was not sent');
     await waitText('Waiting for review');
     await fs.mkdir(path.resolve(__dirname, '../test-artifacts'), { recursive: true });
     await page.screenshot({ path: path.resolve(__dirname, '../test-artifacts/student-dashboard.png'), fullPage: true });
@@ -140,6 +145,8 @@ async function main() {
     await waitText('Document removed');
     await screenshot('student-history');
     await clickText('Sign out');
+    // Sign-out redirects home; let it finish before navigating, or the two navigations race.
+    await page.waitForFunction(() => location.pathname === '/' && !document.querySelector('[aria-controls="mobile-menu"]')?.closest('header')?.innerText.includes('Sign out'));
 
     console.log('Checking admin review and issuance...');
     await login('flow-admin@example.com');
@@ -183,8 +190,11 @@ async function main() {
     await clickText('Issue degree');
     await clickText('Confirm issuance');
     await waitText('Certificate issued successfully.');
+    assert(mailFor('flow-student@example.com', /^Your application was approved/), 'Approval email was not sent');
     const degree = await Degree.findOne({ issuanceStatus: 'issued' });
     assert(degree, 'Degree was not issued');
+    const issuedMail = mailFor('flow-student@example.com', /^Your certificate is ready/);
+    assert(issuedMail && issuedMail.text.includes(`/verify/${degree.hash}`), 'Issuance email was not sent with the verification link');
     files.push(path.resolve(__dirname, '..', degree.pdfUrl.replace(/^\//, '')));
     await page.goto(`${origin}/verify/${degree.hash}`);
     // No click: direct links and certificate QR codes should verify automatically.
@@ -222,6 +232,9 @@ async function main() {
     await clickText('Confirm rejection');
     await page.waitForFunction(() => !document.querySelector('dialog'));
     await waitText('Reason for rejection:');
+    const rejection = mailbox.find(mail => /^Your application needs attention/.test(mail.subject));
+    assert(rejection && /^queue-\d+@example\.com$/.test(rejection.to) && rejection.text.includes('Please provide a complete transcript.'), 'Rejection email was not sent with the reason');
+    assert.equal(mailbox.length, 4, `Expected exactly four status emails, got: ${mailbox.map(mail => mail.subject).join(' | ')}`);
     await waitText('Application rejected');
     await clickText('Back to queue');
     await page.waitForFunction(() => document.querySelector('.console-queue ul[aria-busy="false"]') && !new URLSearchParams(location.search).get('selected'));
@@ -232,7 +245,7 @@ async function main() {
     await screenshot('admin-detail-mobile');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Application details overflow on mobile');
     assert.deepEqual(errors, [], 'Browser reported JavaScript errors');
-    console.log('PASS: draft resume, document replacement/removal, activity history, queue pagination, preserved filters, split-view record, keyboard navigation, review, approval, real PDF issuance, automatic verification, and desktop/tablet/mobile layouts.');
+    console.log('PASS: draft resume, document replacement/removal, activity history, queue pagination, preserved filters, split-view record, keyboard navigation, review, approval, real PDF issuance, status emails, automatic verification, and desktop/tablet/mobile layouts.');
   } finally {
     if (browser) await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 5000))]);
     if (vite) await vite.close();

@@ -4,6 +4,7 @@ const User = require('../models/User');
 const logger = require('../utils/logger');
 const { validationResult } = require('express-validator');
 const activity = require('../services/activity');
+const { notify } = require('../services/notify');
 const ACTIVE_STATUSES = ['pending', 'under_review', 'approved', 'issuing'];
 const HISTORY_STATUSES = ['issued', 'rejected', 'withdrawn'];
 
@@ -111,6 +112,7 @@ const transition = async (req, res, next, from, status, fields) => {
       _id: req.params.id, status: { $in: from }, ...(status === 'under_review' || status === 'approved' ? { 'documents.0': { $exists: true } } : {})
     }, { $set: { status, ...fields }, $push: { history: activity(req.user, ({ under_review: 'review_started', approved: 'approved', rejected: 'rejected' })[status], fields.rejectionReason || fields.adminComments || '') } }, { new: true, runValidators: true });
     if (!application) return res.status(409).json({ error: 'Application does not allow this action in its current state.' });
+    if (status === 'approved' || status === 'rejected') notify(status, { application });
     res.json({ message: `Application ${status}`, application });
   } catch (error) { next(error); }
 };

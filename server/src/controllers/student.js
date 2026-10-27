@@ -6,6 +6,7 @@ const { validationResult } = require('express-validator');
 const fs = require('fs').promises;
 const activity = require('../services/activity');
 const documentFiles = require('../services/documentFiles');
+const { notify } = require('../services/notify');
 
 exports.getApplications = async (req, res, next) => {
   try {
@@ -94,7 +95,10 @@ exports.submitApplication = async (req, res, next) => {
     const application = await Application.findOneAndUpdate({
       _id: req.params.id, student: req.user._id, status: 'draft', 'documents.0': { $exists: true }
     }, { $set: { status: 'pending', submittedAt: new Date() }, $push: { history: activity(req.user, 'submitted') } }, { new: true, runValidators: true });
-    if (application) return res.json({ message: 'Application submitted for review.', application });
+    if (application) {
+      notify('submitted', { application });
+      return res.json({ message: 'Application submitted for review.', application });
+    }
     const existing = await Application.findOne({ _id: req.params.id, student: req.user._id });
     if (!existing) return res.status(404).json({ error: 'Application not found.' });
     if (existing.status === 'pending' && existing.documents.length) return res.json({ message: 'Application already submitted.', application: existing });
