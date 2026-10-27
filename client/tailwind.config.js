@@ -8,19 +8,23 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
-        serif: ['Inter', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'sans-serif'],
+        serif: ['Newsreader', 'Iowan Old Style', 'Georgia', 'serif'],
+        mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'Consolas', 'monospace'],
       },
       colors: {
         navy: {
-          DEFAULT: '#203c63',
-          mid: '#182e4d',
-          light: '#345f94',
+          DEFAULT: '#1f3a5f',
+          mid: '#172c48',
+          light: '#2f5585',
         },
         gold: {
           DEFAULT: '#c7dcf5',
           light: '#e3edfa',
         },
-        off: '#f8f9fb',
+        ink: { DEFAULT: '#1d2025', soft: '#4a4f57', faint: '#6a6f77' },
+        paper: { DEFAULT: '#f7f5f0', deep: '#efece4' },
+        rule: { DEFAULT: '#dcd7cc', strong: '#bdb6a8' },
+        off: '#f7f5f0',
       }
     },
   },

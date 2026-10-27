@@ -64,7 +64,9 @@ async function main() {
       await page.waitForFunction(() => !document.querySelector('.page-enter') || Number(getComputedStyle(document.querySelector('.page-enter')).opacity) > 0.99);
       return page.screenshot({ path: path.join(artifacts, `${name}.png`), fullPage: true });
     };
-    const waitText = text => page.waitForFunction(value => document.body.innerText.includes(value), {}, text);
+    const waitText = text => page.waitForFunction(value => document.body.innerText.toLowerCase().includes(value.toLowerCase()), {}, text);
+    // The staff queue: a list of row buttons beside the open record.
+    const queueSettled = rows => page.waitForFunction(count => document.querySelector('.console-queue ul[aria-busy="false"]') && document.querySelectorAll('.queue-row').length === count, {}, rows);
     const clickText = async text => {
       await waitText(text);
       const clicked = await page.evaluate(value => {
@@ -87,7 +89,7 @@ async function main() {
     await page.goto(origin);
     await screenshot('home-desktop');
     await login('flow-student@example.com');
-    await clickText('New application');
+    await clickText('Start your application');
     await page.waitForSelector('input[maxlength="150"]');
     await page.type('input[maxlength="150"]', 'BS Computing');
     await page.type('input[list="departments"]', 'Computing');
@@ -127,7 +129,7 @@ async function main() {
     assert.equal(await page.$('[aria-label="Remove transcript.pdf"]'), null);
     await clickText('Submit application for review');
     await waitText('Application submitted');
-    await clickText('Go to dashboard');
+    await clickText('Go to overview');
     await waitText('Waiting for review');
     await fs.mkdir(path.resolve(__dirname, '../test-artifacts'), { recursive: true });
     await page.screenshot({ path: path.resolve(__dirname, '../test-artifacts/student-dashboard.png'), fullPage: true });
@@ -137,29 +139,34 @@ async function main() {
     await waitText('Document replaced');
     await waitText('Document removed');
     await screenshot('student-history');
-    await clickText('Logout');
+    await clickText('Sign out');
 
     console.log('Checking admin review and issuance...');
     await login('flow-admin@example.com');
-    await waitText('Application inbox.');
-    await page.waitForFunction(() => document.querySelector('.inbox-results[aria-busy="false"]') && document.querySelectorAll('.inbox-table tbody tr').length === 10);
+    await waitText('Application queue');
+    await queueSettled(19);
     await screenshot('admin-dashboard');
+    await page.goto(`${origin}/admin/dashboard?limit=10`);
+    await queueSettled(10);
     await clickText('Next');
-    await page.waitForFunction(() => document.querySelector('.inbox-results[aria-busy="false"]') && document.querySelectorAll('.inbox-table tbody tr').length === 9);
-    await clickText('Previous');
-    await page.waitForFunction(() => document.querySelector('.inbox-results[aria-busy="false"]') && document.querySelectorAll('.inbox-table tbody tr').length === 10);
+    await queueSettled(9);
+    await clickText('Prev');
+    await queueSettled(10);
     await page.type('input[type="search"]', 'Flow Test Student');
-    await page.waitForFunction(() => document.querySelector('.inbox-results[aria-busy="false"]') && document.querySelectorAll('.inbox-table tbody tr').length === 1);
-    const filteredURL = page.url();
-    const recordLink = `a[href="/admin/applications/${submittedApplication._id}"]`;
-    await page.focus(recordLink);
+    await queueSettled(1);
+    const recordRow = `#queue-${submittedApplication._id}`;
+    await page.focus(recordRow);
     await page.keyboard.press('Enter');
     await waitText('Supporting documents');
     await page.waitForSelector('[aria-label="Download corrected-transcript.pdf"]');
-    await clickText('Back to application inbox');
-    await page.waitForSelector(recordLink);
-    assert.equal(page.url(), filteredURL, 'Returning from a record should preserve inbox filters');
-    await page.click(recordLink);
+    assert.equal(await page.$eval(recordRow, row => row.getAttribute('aria-current')), 'true', 'The open record should be marked in the queue');
+    const filteredURL = page.url();
+    assert(filteredURL.includes('search=Flow') && filteredURL.includes(`selected=${submittedApplication._id}`), 'Opening a record should keep the queue filters');
+    await clickText('Open as page');
+    await waitText('Back to the queue');
+    await clickText('Back to the queue');
+    await page.waitForSelector(recordRow);
+    assert.equal(page.url(), filteredURL, 'Returning from a record page should preserve queue filters');
     await waitText('Activity history');
     await screenshot('admin-detail');
     await clickText('Start review');
@@ -181,7 +188,7 @@ async function main() {
     files.push(path.resolve(__dirname, '..', degree.pdfUrl.replace(/^\//, '')));
     await page.goto(`${origin}/verify/${degree.hash}`);
     // No click: direct links and certificate QR codes should verify automatically.
-    await waitText('Issued Details Verified Locally');
+    await waitText('Issued details verified by the university');
     await waitText('Flow Test Student');
     assert.equal((await Application.findById(submittedApplication._id)).status, 'issued');
     const certificate = await fetch(`${origin}${degree.pdfUrl}`);
@@ -191,20 +198,20 @@ async function main() {
     await page.screenshot({ path: path.resolve(__dirname, '../test-artifacts/verification-mobile.png'), fullPage: true });
     const overflow = await page.evaluate(() => [...document.querySelectorAll('body *')].filter(element => element.getBoundingClientRect().right > window.innerWidth + 1).slice(0, 5).map(element => ({ tag: element.tagName, className: element.className })));
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `Verification page overflows on mobile: ${JSON.stringify(overflow)}`);
-    await page.goto(`${origin}/admin/dashboard`);
-    await waitText('Application inbox.');
-    await page.waitForFunction(() => document.querySelector('.inbox-results[aria-busy="false"]') && document.querySelectorAll('.inbox-table tbody tr').length === 10);
+    await page.goto(`${origin}/admin/dashboard?limit=10`);
+    await waitText('Application queue');
+    await queueSettled(10);
     await screenshot('admin-mobile');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Admin workspace overflows on mobile');
-    await page.click('[aria-label="Open navigation"]');
-    await page.waitForFunction(() => document.querySelector('[aria-label="Open navigation"]').getAttribute('aria-expanded') === 'true');
+    await page.click('[aria-controls="mobile-menu"]');
+    await page.waitForFunction(() => document.querySelector('[aria-controls="mobile-menu"]').getAttribute('aria-expanded') === 'true' && document.getElementById('mobile-menu'));
     await page.keyboard.press('Escape');
-    await page.waitForFunction(() => document.querySelector('[aria-label="Open navigation"]').getAttribute('aria-expanded') === 'false');
+    await page.waitForFunction(() => document.querySelector('[aria-controls="mobile-menu"]').getAttribute('aria-expanded') === 'false');
     await page.setViewport({ width: 768, height: 1024 });
     await screenshot('admin-tablet');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Admin inbox overflows on tablet');
     await page.setViewport({ width: 390, height: 844 });
-    await page.click('.inbox-open');
+    await page.click('.queue-row');
     await waitText('Supporting documents');
     await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === 'Reject' && !button.disabled));
     await clickText('Reject');
@@ -216,16 +223,16 @@ async function main() {
     await page.waitForFunction(() => !document.querySelector('dialog'));
     await waitText('Reason for rejection:');
     await waitText('Application rejected');
-    await clickText('Back to application inbox');
-    await page.waitForFunction(() => document.querySelector('.inbox-results[aria-busy="false"]'));
-    await page.evaluate(() => [...document.querySelectorAll('.inbox-views button')].find(button => button.textContent.startsWith('Completed')).click());
-    await page.waitForSelector(recordLink);
-    await page.click(recordLink);
+    await clickText('Back to queue');
+    await page.waitForFunction(() => document.querySelector('.console-queue ul[aria-busy="false"]') && !new URLSearchParams(location.search).get('selected'));
+    await page.evaluate(() => [...document.querySelectorAll('.console-tabs button')].find(button => button.textContent.startsWith('Completed')).click());
+    await page.waitForSelector(recordRow);
+    await page.click(recordRow);
     await waitText('Certificate issued');
     await screenshot('admin-detail-mobile');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Application details overflow on mobile');
     assert.deepEqual(errors, [], 'Browser reported JavaScript errors');
-    console.log('PASS: draft resume, document replacement/removal, activity history, compact inbox pagination, preserved filters, keyboard navigation, review, approval, real PDF issuance, automatic verification, and desktop/tablet/mobile layouts.');
+    console.log('PASS: draft resume, document replacement/removal, activity history, queue pagination, preserved filters, split-view record, keyboard navigation, review, approval, real PDF issuance, automatic verification, and desktop/tablet/mobile layouts.');
   } finally {
     if (browser) await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 5000))]);
     if (vite) await vite.close();

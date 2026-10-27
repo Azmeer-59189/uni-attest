@@ -2,21 +2,23 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { apiError } from '../../utils/apiError'
-import { FileText, Award, Plus, Copy, RefreshCw, Clock3, ArrowUpRight, Download, ArrowRight } from 'lucide-react'
+import { Copy, RefreshCw, Download, ArrowRight, ArrowUpRight } from 'lucide-react'
 
-import { PageHeader, StatCard, ApplicationProgress, SectionHeading } from '../../components/UI'
+import { ApplicationProgress, SectionHeading } from '../../components/UI'
+import { StatusBadge, formatDate } from '../../components/ApplicationRecord'
 
 const activeStatuses = ['draft', 'pending', 'under_review', 'approved', 'issuing']
 const statuses = {
-  draft: { label: 'Draft - not submitted', color: 'bg-gray-100 text-gray-700', next: 'Finish your details and documents, then submit for review.' },
-  pending: { label: 'Waiting for review', color: 'bg-yellow-50 text-yellow-800', next: 'Your application is in the review queue.' },
-  under_review: { label: 'Under review', color: 'bg-blue-50 text-blue-700', next: 'An admin is reviewing your details and documents.' },
-  approved: { label: 'Approved', color: 'bg-green-50 text-green-700', next: 'Your application is approved and waiting for the certificate to be issued.' },
-  issuing: { label: 'Issuance in progress', color: 'bg-yellow-50 text-yellow-800', next: 'The admin is completing your certificate. It will appear here once ready.' },
-  issued: { label: 'Issued', color: 'bg-purple-50 text-purple-700', next: 'Your certificate is available below.' },
-  rejected: { label: 'Rejected', color: 'bg-red-50 text-red-700', next: 'Read the feedback below before starting a new application.' },
-  withdrawn: { label: 'Withdrawn', color: 'bg-gray-100 text-gray-600', next: 'This application is closed. You can start a new one.' }
+  draft: { label: 'Draft – not submitted', phrase: 'saved as a draft', next: 'Finish your details and documents, then submit for review.' },
+  pending: { label: 'Waiting for review', phrase: 'waiting for review', next: 'Your application is in the review queue.' },
+  under_review: { label: 'Under review', phrase: 'under review', next: 'An admin is reviewing your details and documents.' },
+  approved: { label: 'Approved', phrase: 'approved', next: 'Your application is approved and waiting for the certificate to be issued.' },
+  issuing: { label: 'Issuance in progress', phrase: 'being issued', next: 'The admin is completing your certificate. It will appear here once ready.' },
+  issued: { label: 'Issued', next: 'Your certificate is available below.' },
+  rejected: { label: 'Rejected', next: 'Read the feedback below before starting a new application.' },
+  withdrawn: { label: 'Withdrawn', next: 'This application is closed. You can start a new one.' }
 }
+
 export default function StudentDashboard() {
   const { user, api, downloadDocument } = useAuth()
   const [applications, setApplications] = useState([])
@@ -40,45 +42,76 @@ export default function StudentDashboard() {
     try { await navigator.clipboard.writeText(hash); setCopied(hash) }
     catch (_) { setError('Could not copy the hash. Select and copy the displayed hash instead.') }
   }
-  if (loading) return <p role="status" className="text-center py-16 text-gray-500">Loading your dashboard...</p>
-  return <div className="max-w-6xl mx-auto space-y-8">
-    <PageHeader eyebrow="Student overview" title="Your application, one step at a time." description={`Welcome back, ${user?.fullName.split(' ')[0]}. Track your applications and keep your credentials in one place.`} actions={<>
-      <button disabled={refreshing} onClick={fetchData} className="button-secondary !px-3" aria-label="Refresh dashboard"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /></button>
-      {loaded && <Link to="/student/apply" className="button-primary"><Plus className="h-4 w-4" />{active ? active.status === 'draft' ? 'Continue draft' : 'View active application' : 'New application'}</Link>}
-    </>} />
-    {error && <div role="alert" className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}<button disabled={refreshing} onClick={fetchData} className="ml-3 underline">Retry</button></div>}
-    {loaded && <>
-      {active && <Link to="/student/apply" className="flex items-center gap-4 rounded-2xl border border-[#d5e1f0] bg-[#edf3fb] p-5 sm:p-6"><span className="hidden sm:flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-[#345f94]"><FileText className="h-5 w-5" /></span><div className="flex-1"><p className="text-sm font-semibold text-navy">{active.status === 'draft' ? 'Your next step: finish your application' : 'Your application is moving forward'}</p><p className="text-sm text-[#4b607c] mt-1.5 leading-relaxed">{statuses[active.status]?.next}</p></div><ArrowRight className="h-4 w-4 shrink-0 text-[#345f94]" /></Link>}
-      {!active && <div className="rounded-2xl border border-blue-200 bg-[#edf3fb] p-6 sm:p-8"><p className="page-kicker mb-2">Your next step</p><h2 className="text-xl font-semibold text-navy">{degrees.length ? 'Your achievement is ready to share' : 'Get your degree attested'}</h2><p className="mt-2 max-w-xl text-sm text-slate-600">{degrees.length ? 'Find your issued certificates below. Download a copy or open its verification page.' : 'Start with your degree details, add your documents, then submit for university review. Save a draft and return whenever you need.'}</p><Link to="/student/apply" className="button-primary mt-5">{degrees.length ? 'Start another application' : 'Start your application'}<ArrowRight className="h-4 w-4" /></Link></div>}
-      <div className="grid grid-cols-1 min-[440px]:grid-cols-3 gap-4">
-        <StatCard label="Total applications" value={applications.length} caption="Your attestation requests" icon={FileText} />
-        <StatCard label="In progress" value={applications.filter(item => activeStatuses.includes(item.status)).length} caption="Drafts and active applications" icon={Clock3} accent="text-amber-700 bg-amber-50" />
-        <StatCard label="Certificates" value={degrees.length} caption="Issued and ready to share" icon={Award} accent="text-emerald-700 bg-emerald-50" />
-      </div>
-      <section className="space-y-4"><SectionHeading title="My applications" description="Your requests, documents, and latest updates." aside={<span className="text-xs text-slate-500">{applications.length} total</span>} />
-        {!applications.length && <div className="panel p-10 text-center"><FileText className="h-8 w-8 text-gray-300 mx-auto mb-3" /><p className="text-gray-500">You have no applications yet.</p><Link to="/student/apply" className="text-navy underline text-sm mt-2 inline-block">Start your first application</Link></div>}
-        {applications.map(application => {
-          const status = statuses[application.status] || { label: application.status, color: 'bg-gray-100', next: '' }
-          const unfinishedLegacy = application.status === 'pending' && !application.submittedAt && !application.documents?.length
-          return <article key={application._id} className="panel p-5 sm:p-6 space-y-3">
-            <div className="flex justify-between gap-3 flex-wrap"><div><h3 className="text-base font-semibold text-navy">{application.programName}</h3><p className="text-sm text-gray-500">{application.department} | {application.graduationYear}{application.cgpa != null ? ` | CGPA ${application.cgpa}` : ''}</p></div><span className={`status-pill h-fit ${status.color}`}><span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />{unfinishedLegacy ? 'Documents needed' : status.label}</span></div>
-            <p className="text-sm text-gray-500">{unfinishedLegacy ? 'Finish uploading your documents so the admin can review your application.' : status.next}</p>
-            <p className="text-xs text-gray-500">{application.status === 'draft' ? 'Draft saved' : 'Submitted'} {new Date(application.submittedAt || application.createdAt).toLocaleDateString('en-PK')} | {application.documents?.length || 0} document(s)</p>
-            {application.rejectionReason && <p className="bg-red-50 text-red-800 rounded-lg p-3 text-sm"><strong>Reason for rejection:</strong> {application.rejectionReason}</p>}
-            {application.adminComments && <p className="bg-gray-50 rounded-lg p-3 text-sm"><strong>Admin feedback:</strong> {application.adminComments}</p>}
-            <div className="flex flex-wrap gap-3 text-sm">{(application.status === 'draft' || unfinishedLegacy) && <Link to="/student/apply" className="text-navy underline font-medium">Continue application</Link>}
-              <Link to={`/student/applications/${application._id}`} className="text-navy underline font-medium">View details & history</Link>
-              {(application.documents || []).map(doc => <button key={doc._id} onClick={() => downloadDocument(doc._id, doc.originalName).catch(err => setError(apiError(err, 'Document download failed.')))} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 hover:text-navy hover:border-slate-400"><Download className="h-3 w-3" />{doc.originalName}</button>)}
+  if (loading) return <p role="status" className="py-24 text-center text-ink-faint">Loading your record…</p>
+  const firstName = user?.fullName.split(' ')[0]
+  const latestDegree = degrees[0]
+
+  return <div className="max-w-4xl space-y-20">
+    <section aria-labelledby="record-title">
+      <div className="flex items-center justify-between gap-4"><p className="page-kicker">Student record · {firstName}</p><button disabled={refreshing} onClick={fetchData} className="inline-flex min-h-11 items-center gap-2 text-xs text-ink-faint hover:text-ink" aria-label="Refresh your record"><RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /><span className="hidden sm:inline">Refresh</span></button></div>
+      {error && <div role="alert" className="mt-6 border-l-2 border-red-700 bg-red-50 p-4 text-sm text-red-800">{error}<button disabled={refreshing} onClick={fetchData} className="ml-3 underline">Retry</button></div>}
+      {loaded && <div className="mt-5 grid gap-10 md:grid-cols-[minmax(0,1fr)_15rem]">
+        <div>
+          <h1 id="record-title" className="page-title">{active ? <>Your {active.programName} is <em className="italic text-navy">{statuses[active.status].phrase}</em>.</> : latestDegree ? <>Your {latestDegree.snapshot?.program || latestDegree.application?.programName || 'degree'} has been <em className="italic text-navy">attested</em>.</> : 'Get your degree attested.'}</h1>
+          <p className="mt-5 max-w-xl text-base leading-relaxed text-ink-soft">{active ? statuses[active.status].next : latestDegree ? 'Your certificate is below. Download a copy or share its public verification page with an employer or institution.' : 'Add your degree details and supporting documents, then submit for university review. You can save a draft and come back whenever you need.'}</p>
+          <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
+            {active ? <>
+              {active.status === 'draft' ? <Link to="/student/apply" className="button-primary">Continue your draft<ArrowRight className="h-4 w-4" /></Link> : <Link to={`/student/applications/${active._id}`} className="button-primary">View application<ArrowRight className="h-4 w-4" /></Link>}
+            </> : <Link to="/student/apply" className="button-primary">{degrees.length ? 'Start another application' : 'Start your application'}<ArrowRight className="h-4 w-4" /></Link>}
+          </div>
+        </div>
+        {active && <dl className="meta-list content-start border-t border-rule pt-4 md:border-t-0 md:border-l md:pl-6 md:pt-1">
+          <dt>Reference</dt><dd className="font-mono text-[13px]">{String(active._id).slice(-8).toUpperCase()}</dd>
+          <dt>{active.status === 'draft' ? 'Saved' : 'Submitted'}</dt><dd>{formatDate(active.submittedAt || active.updatedAt || active.createdAt)}</dd>
+          <dt>Documents</dt><dd>{active.documents?.length || 0} attached</dd>
+          <dt>Graduated</dt><dd>{active.graduationYear}</dd>
+        </dl>}
+      </div>}
+      {active && active.status !== 'draft' && <ApplicationProgress status={active.status} className="mt-12" />}
+    </section>
+
+    {loaded && degrees.length > 0 && <section aria-labelledby="certificates-title" className="space-y-8">
+      <SectionHeading id="certificates-title" title="Certificates" aside={`${degrees.length} issued`} />
+      {degrees.map(degree => <article key={degree._id} className="certificate-sheet">
+        <p className="page-kicker text-center">Certificate of attestation</p>
+        <h3 className="display mt-5 text-center text-3xl sm:text-4xl">{degree.snapshot?.program || degree.application?.programName}</h3>
+        <p className="mt-3 text-center text-sm text-ink-soft">Awarded to {degree.snapshot?.studentName || user?.fullName}{degree.snapshot?.graduationYear ? `, class of ${degree.snapshot.graduationYear}` : ''}</p>
+        <div className="mx-auto mt-8 h-px w-24 bg-rule-strong" />
+        <p className="mt-6 text-center text-[11px] uppercase tracking-[0.16em] text-ink-faint">Verification hash</p>
+        <p className="mx-auto mt-2 max-w-xl break-all text-center font-mono text-xs text-ink-soft select-all">{degree.hash}</p>
+        <div className="mt-7 flex flex-wrap justify-center gap-x-6 gap-y-3 text-sm">
+          {degree.pdfUrl && <a href={degree.pdfUrl} target="_blank" rel="noreferrer" className="button-primary"><Download className="h-4 w-4" />Download certificate</a>}
+          <Link to={`/verify/${degree.hash}`} className="button-secondary">Public verification page<ArrowUpRight className="h-4 w-4" /></Link>
+          <button onClick={() => copyHash(degree.hash)} className="inline-flex min-h-11 items-center gap-1.5 text-ink-soft hover:text-ink"><Copy className="h-3.5 w-3.5" /><span aria-live="polite">{copied === degree.hash ? 'Copied' : 'Copy hash'}</span></button>
+        </div>
+      </article>)}
+    </section>}
+
+    {loaded && <section aria-labelledby="applications-title">
+      <SectionHeading id="applications-title" title="Applications" aside={`${applications.length} on record`} />
+      {!applications.length && <p className="py-10 text-ink-soft">You have no applications yet. <Link to="/student/apply" className="text-link">Start your first application</Link></p>}
+      <ol>{applications.map(application => {
+        const status = statuses[application.status] || { label: application.status, next: '' }
+        const unfinishedLegacy = application.status === 'pending' && !application.submittedAt && !application.documents?.length
+        return <li key={application._id} className="grid gap-x-8 gap-y-3 border-b border-rule py-7 sm:grid-cols-[minmax(0,1fr)_11rem]">
+          <div className="min-w-0">
+            <h3 className="display text-2xl leading-snug"><Link to={`/student/applications/${application._id}`} className="hover:underline decoration-1 underline-offset-4">{application.programName}</Link></h3>
+            <p className="mt-1 text-sm text-ink-faint">{application.department} · {application.graduationYear}{application.cgpa != null ? ` · CGPA ${application.cgpa}` : ''}</p>
+            <p className="mt-3 text-sm text-ink-soft">{unfinishedLegacy ? 'Finish uploading your documents so the admin can review your application.' : status.next}</p>
+            {application.rejectionReason && <p className="mt-3 border-l-2 border-red-700 pl-3 text-sm text-red-800"><strong className="font-medium">Reason for rejection:</strong> {application.rejectionReason}</p>}
+            {application.adminComments && <p className="mt-3 border-l-2 border-rule-strong pl-3 text-sm text-ink-soft"><strong className="font-medium text-ink">Reviewer’s note:</strong> {application.adminComments}</p>}
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+              {(application.status === 'draft' || unfinishedLegacy) && <Link to="/student/apply" className="text-link">Continue application</Link>}
+              <Link to={`/student/applications/${application._id}`} className="text-link">Details & history</Link>
+              {(application.documents || []).map(doc => <button key={doc._id} onClick={() => downloadDocument(doc._id, doc.originalName).catch(err => setError(apiError(err, 'Document download failed.')))} className="inline-flex min-h-8 max-w-full items-center gap-1.5 text-xs text-ink-faint hover:text-ink"><Download className="h-3 w-3 shrink-0" /><span className="truncate">{doc.originalName}</span></button>)}
             </div>
-            <ApplicationProgress status={application.status} />
-          </article>
-        })}
-      </section>
-      {degrees.length > 0 && <section className="space-y-4"><SectionHeading title="Your certificates" description="A record of your achievement, ready to share." />{degrees.map(degree => <article key={degree._id} className="relative overflow-hidden bg-navy text-white rounded-2xl p-6 sm:p-8 space-y-4 border border-navy-light">
-        <div className="flex gap-3 items-center"><Award className="h-6 w-6 text-gold" /><h3 className="font-serif text-xl text-white">{degree.snapshot?.program || degree.application?.programName}</h3></div>
-        <p className="font-mono text-xs break-all text-gray-300 select-all">{degree.hash}</p>
-        <div className="flex gap-3 flex-wrap text-sm"><button onClick={() => copyHash(degree.hash)} className="inline-flex gap-1 items-center text-gold"><Copy className="h-3 w-3" />{copied === degree.hash ? 'Copied' : 'Copy hash'}</button><Link to={`/verify/${degree.hash}`} className="text-gold underline">Verify certificate</Link>{degree.pdfUrl && <a href={degree.pdfUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-gold/40 px-3 py-2 text-gold text-xs"><Download className="h-3.5 w-3.5" />Download certificate</a>}</div>
-      </article>)}</section>}
-    </>}
+          </div>
+          <div className="flex flex-row flex-wrap items-center gap-x-4 gap-y-1 sm:flex-col sm:items-end sm:text-right">
+            <StatusBadge status={unfinishedLegacy ? 'draft' : application.status} label={unfinishedLegacy ? 'Documents needed' : status.label} />
+            <p className="font-mono text-[11px] text-ink-faint">{application.status === 'draft' ? 'Saved' : 'Submitted'} {formatDate(application.submittedAt || application.createdAt)}</p>
+          </div>
+        </li>
+      })}</ol>
+    </section>}
   </div>
 }

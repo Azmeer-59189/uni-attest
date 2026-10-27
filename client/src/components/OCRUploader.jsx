@@ -78,14 +78,14 @@ export default function OCRUploader({ onFieldsExtracted, token }) {
     : 0;
 
   return (
-    <div className="bg-[#111D2C] border border-slate-800 rounded-xl p-6">
+    <div className="bg-[#111D2C] border border-slate-800 rounded-md p-6">
       <div className="flex items-center gap-2 mb-4">
-        <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center text-lg">
+        <div className="w-8 h-8 rounded-md bg-blue-500/15 flex items-center justify-center text-lg">
           🔍
         </div>
         <div>
           <h3 className="text-white font-semibold text-sm">Auto-fill with OCR</h3>
-          <p className="text-slate-500 text-xs">Upload your degree/transcript to extract details automatically</p>
+          <p className="text-ink-faint text-xs">Upload your degree/transcript to extract details automatically</p>
         </div>
       </div>
 
@@ -95,7 +95,7 @@ export default function OCRUploader({ onFieldsExtracted, token }) {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all mb-4 ${
+        className={`border-2 border-dashed rounded-md p-6 text-center cursor-pointer transition-all mb-4 ${
           loading ? "opacity-50 cursor-not-allowed" :
           dragOver ? "border-blue-500 bg-blue-500/5" :
           file ? "border-green-500/40 bg-green-500/5" :
@@ -113,13 +113,13 @@ export default function OCRUploader({ onFieldsExtracted, token }) {
           <div>
             <div className="text-2xl mb-1">{file.type.includes("pdf") ? "📄" : "🖼️"}</div>
             <p className="text-green-400 text-sm font-medium">{file.name}</p>
-            <p className="text-slate-500 text-xs mt-0.5">{(file.size / 1024).toFixed(0)} KB · Click to change</p>
+            <p className="text-ink-faint text-xs mt-0.5">{(file.size / 1024).toFixed(0)} KB · Click to change</p>
           </div>
         ) : (
           <div>
             <div className="text-2xl mb-1">📋</div>
             <p className="text-slate-300 text-sm font-medium">Drop your degree or transcript here</p>
-            <p className="text-slate-500 text-xs mt-0.5">JPG, PNG, PDF · Max 10MB</p>
+            <p className="text-ink-faint text-xs mt-0.5">JPG, PNG, PDF · Max 10MB</p>
           </div>
         )}
       </div>
@@ -132,7 +132,7 @@ export default function OCRUploader({ onFieldsExtracted, token }) {
         <button
           onClick={handleExtract}
           disabled={loading}
-          className="w-full py-2.5 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors flex items-center justify-center gap-2 mb-4"
+          className="w-full py-2.5 bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-white font-medium rounded-md text-sm transition-colors flex items-center justify-center gap-2 mb-4"
         >
           {loading ? (
             <>
@@ -160,16 +160,16 @@ export default function OCRUploader({ onFieldsExtracted, token }) {
           <div className="space-y-2.5 mb-4">
             {Object.entries(FIELD_LABELS).map(([key, { label, icon }]) => (
               <div key={key}>
-                <label className="block text-xs text-slate-500 mb-1">{icon} {label}</label>
+                <label className="block text-xs text-ink-faint mb-1">{icon} {label}</label>
                 <input
                   type="text"
                   value={editedFields[key] ?? ""}
                   onChange={(e) => setEditedFields((f) => ({ ...f, [key]: e.target.value }))}
                   placeholder={`${label} not detected`}
-                  className={`w-full px-3 py-2 rounded-lg text-sm border transition-all focus:outline-none focus:border-blue-500 ${
+                  className={`w-full px-3 py-2 rounded-md text-sm border transition-all focus:outline-none focus:border-blue-500 ${
                     editedFields[key]
                       ? "bg-green-500/5 border-green-500/30 text-white"
-                      : "bg-[#0D1B2A] border-slate-700 text-slate-500 placeholder-slate-600"
+                      : "bg-[#0D1B2A] border-slate-700 text-ink-faint placeholder-slate-600"
                   }`}
                 />
               </div>
@@ -179,19 +179,19 @@ export default function OCRUploader({ onFieldsExtracted, token }) {
           <div className="flex gap-2">
             <button
               onClick={handleUseFields}
-              className="flex-1 py-2.5 bg-green-500 hover:bg-green-400 text-white font-medium rounded-lg text-sm transition-colors"
+              className="flex-1 py-2.5 bg-green-500 hover:bg-green-400 text-white font-medium rounded-md text-sm transition-colors"
             >
               ✓ Use These Fields
             </button>
             <button
               onClick={() => { setResult(null); setFile(null); setEditedFields({}); }}
-              className="px-4 py-2.5 border border-slate-700 text-slate-500 hover:text-white rounded-lg text-sm transition-all"
+              className="px-4 py-2.5 border border-slate-700 text-ink-faint hover:text-white rounded-md text-sm transition-all"
             >
               Reset
             </button>
           </div>
 
-          <p className="text-slate-600 text-xs mt-2 text-center">
+          <p className="text-ink-soft text-xs mt-2 text-center">
             You can edit any field above before using
           </p>
         </div>
