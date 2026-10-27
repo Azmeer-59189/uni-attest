@@ -83,7 +83,6 @@ uni-attest/
     contracts/DegreeAttestation.sol
     scripts/deploy.js
   face_service.py                 Optional Flask face verification service
-  yolov8n.pt                      Legacy model asset (unused by current verification)
 ```
 
 ## Setup
@@ -156,7 +155,7 @@ cd server
 node setup-admin.js
 ```
 
-The script creates `admin@university.edu` with a randomly generated password printed once in the terminal. Optionally set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (12?72 bytes) before running it. Existing accounts are left unchanged. Use **Account ? Change password** after signing in; password changes invalidate existing sessions.
+The script creates `admin@university.edu` with a randomly generated password printed once in the terminal. Optionally set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (12–72 bytes) before running it. Existing accounts are left unchanged. Use **Account → Change password** after signing in; password changes invalidate existing sessions.
 
 ### 5. Run the app
 
@@ -244,6 +243,8 @@ Face verification requires exactly one detected face in each image and uses the 
 | POST | `/refresh` | Rotate a refresh token |
 | POST | `/logout` | Invalidate access and refresh tokens |
 | POST | `/change-password` | Change password and invalidate sessions |
+| POST | `/forgot-password` | Email a single-use reset link (requires SMTP; 5 requests per 15 minutes per IP) |
+| POST | `/reset-password` | Set a new password with a reset token and invalidate sessions |
 
 ### Student - `/api/student`
 
@@ -304,7 +305,7 @@ Face verification requires exactly one detected face in each image and uses the 
 | `CONTRACT_ADDRESS` | Optional | Deployed DegreeAttestation contract |
 | `BLOCKCHAIN_REQUIRED` | Optional | Require blockchain-backed issuance even without credentials |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Optional | First super-admin setup overrides |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | Optional | Enables student status emails; all except the port are required to turn them on. Port 465 uses TLS, others STARTTLS |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | Optional | Enables student status and password reset emails; all except the port are required to turn them on. Port 465 uses TLS, others STARTTLS |
 | `MAIL_FROM` | Optional | Sender address for status emails, default `SMTP_USER` |
 
 ## Roadmap
@@ -322,7 +323,8 @@ Face verification requires exactly one detected face in each image and uses the 
 - [x] Certificate QR code with UniAttest verification lookup
 - [x] Email notifications
 - [x] Authenticated admin document download
-- [ ] Inline admin document preview
+- [x] Inline document preview
+- [x] Password reset by email
 - [ ] IPFS decentralized document storage
 - [ ] Production deployment
 
@@ -341,6 +343,10 @@ Refreshing or leaving the application page preserves saved drafts and uploaded d
 The admin queue opens on **Needs attention**, showing pending, in-review, approved, and interrupted issuance records, oldest submissions first, with how long each has waited. **Completed** contains issued, rejected, and withdrawn applications; **All** includes both groups. Selecting an application opens it beside the queue with all review actions; on phones the record replaces the list and the browser's Back button returns to it. While focus is in the queue, the arrow keys or J and K move between records. Search, status, page, page size, and the open record are kept in the URL. The default page size is twenty.
 
 Each application has a separate detail page for its academic record, private documents, review actions, certificate, and activity history. Students open **View details & history** from their dashboard. New actions record the actor's name, role, timestamp, and relevant comments or file names atomically with the application change. Existing applications start recording with their next action; earlier history is not reconstructed. Replacing or removing files is allowed only while the application is a draft. Detached files lose download access immediately, including if disk cleanup is deferred.
+
+When SMTP is configured, anyone can use **Forgot password?** on the sign-in page. The emailed link works once, expires after 30 minutes, and signs out every existing session when used. The form gives the same answer whether or not an account exists. Without SMTP, the form says reset is unavailable; admins can still use `server/reset-admin-password.js`.
+
+Supporting PDFs and images open in a preview inside the application record, for both staff and the owning student, without leaving the page. Some mobile browsers can't show PDFs inline; **Download** always works.
 
 When SMTP is configured, students are emailed when their application is submitted, approved, or rejected (with the reason), and when their certificate is issued (with its public verification link). Emails are sent in the background: a mail failure is logged and never blocks or fails the action. Without SMTP settings no email is sent, and students see changes on their overview. The application does not promise a review completion date.
 

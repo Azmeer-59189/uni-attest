@@ -64,7 +64,7 @@ const Login = () => {
           </div>
 
           <div>
-            <label htmlFor="login-password" className="field-label mb-1.5">Password</label>
+            <div className="mb-1.5 flex items-baseline justify-between gap-3"><label htmlFor="login-password" className="field-label">Password</label><Link to="/forgot-password" className="text-link text-xs">Forgot password?</Link></div>
             <div className="relative">
               <input
                 id="login-password" autoComplete="current-password" type={showPassword ? 'text' : 'password'} required

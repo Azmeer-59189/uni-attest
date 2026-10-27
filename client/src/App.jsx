@@ -4,6 +4,7 @@ import AppLayout from './components/AppLayout'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import { ForgotPassword, ResetPassword } from './pages/PasswordReset'
 import StudentDashboard from './pages/student/Dashboard'
 import NewApplication from './pages/student/NewApplication'
 import AdminDashboard from './pages/admin/Dashboard'
@@ -21,6 +22,8 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/account" element={<ProtectedRoute allowedRoles={['student', 'admin', 'super_admin']}><Account /></ProtectedRoute>} />
             <Route path="/verify/:hash?" element={<VerifyDegree />} />
 

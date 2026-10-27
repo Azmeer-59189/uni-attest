@@ -176,6 +176,11 @@ async function main() {
     assert.equal(page.url(), filteredURL, 'Returning from a record page should preserve queue filters');
     await waitText('Activity history');
     await screenshot('admin-detail');
+    await page.click('[aria-label="Open corrected-transcript.pdf"]');
+    await page.waitForSelector('dialog[open] iframe[src^="blob:"]');
+    await screenshot('admin-document-preview');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('dialog'));
     await clickText('Start review');
     await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === 'Approve' && !button.disabled));
     await clickText('Approve');
@@ -244,8 +249,33 @@ async function main() {
     await waitText('Certificate issued');
     await screenshot('admin-detail-mobile');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Application details overflow on mobile');
+
+    await page.goto(`${origin}/login`);
+    await clickText('Forgot password?');
+    await page.waitForSelector('input[type="email"]');
+    await page.type('input[type="email"]', 'flow-student@example.com');
+    await clickText('Send reset link');
+    await waitText('reset link is on its way');
+    await screenshot('forgot-password-mobile');
+    const resetMail = mailFor('flow-student@example.com', /^Reset your UniAttest password/);
+    assert(resetMail, 'Password reset email was not sent');
+    const resetLink = /(\S+\/reset-password#token=[a-f0-9]{64})/.exec(resetMail.text)[1];
+    await page.goto(resetLink.replace(/^https?:\/\/[^/]+/, origin));
+    await page.waitForSelector('input[autocomplete="new-password"]');
+    assert(!page.url().includes('token='), 'The reset token should be removed from the address bar');
+    const newPassword = 'Flow-reset-password-2026';
+    const [first, second] = await page.$$('input[autocomplete="new-password"]');
+    await first.type(newPassword);
+    await second.type(newPassword);
+    await clickText('Reset password');
+    await page.waitForFunction(() => location.pathname === '/login');
+    await waitText('Password reset. Sign in with your new password.');
+    await page.type('input[type="email"]', 'flow-student@example.com');
+    await page.type('input[type="password"]', newPassword);
+    await page.click('button[type="submit"]');
+    await page.waitForFunction(() => location.pathname.endsWith('/dashboard'));
     assert.deepEqual(errors, [], 'Browser reported JavaScript errors');
-    console.log('PASS: draft resume, document replacement/removal, activity history, queue pagination, preserved filters, split-view record, keyboard navigation, review, approval, real PDF issuance, status emails, automatic verification, and desktop/tablet/mobile layouts.');
+    console.log('PASS: draft resume, document replacement/removal, activity history, queue pagination, preserved filters, split-view record, keyboard navigation, review, approval, real PDF issuance, status emails, document preview, password reset, automatic verification, and desktop/tablet/mobile layouts.');
   } finally {
     if (browser) await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 5000))]);
     if (vite) await vite.close();

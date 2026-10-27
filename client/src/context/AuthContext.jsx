@@ -80,14 +80,18 @@ export const AuthProvider = ({ children }) => {
     await api.post('/auth/change-password', { currentPassword, newPassword })
     clearSession()
   }
-  const downloadDocument = async (id, name = 'document') => {
+  // Private files need the auth header, so they are fetched and shown from an object URL the caller must revoke.
+  const documentUrl = useCallback(async (id, type) => {
     const { data } = await api.get(`/files/documents/${id}`, { responseType: 'blob' })
-    const url = URL.createObjectURL(data)
+    return URL.createObjectURL(type ? new Blob([data], { type }) : data)
+  }, [api])
+  const downloadDocument = async (id, name = 'document') => {
+    const url = await documentUrl(id)
     const link = document.createElement('a')
     link.href = url; link.download = name; link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
-  const value = { user, loading, api, login, register, logout, changePassword, downloadDocument,
+  const value = { user, loading, api, login, register, logout, changePassword, documentUrl, downloadDocument,
     isStudent: () => user?.role === 'student',
     isAdmin: () => ['admin', 'super_admin'].includes(user?.role),
     isSuperAdmin: () => user?.role === 'super_admin', isLoggedIn: () => !!user }

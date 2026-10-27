@@ -118,7 +118,7 @@ def verify_face():
             id_photo_path = save_base64_image(data["id_photo"])
             selfie_path = save_base64_image(data["selfie"])
 
-        # Step 1 — YOLO face detection on both images
+        # Step 1 — face detection on both images
         id_face_found, cropped_id_path = detect_face(id_photo_path)
         selfie_face_found, cropped_selfie_path = detect_face(selfie_path)
 

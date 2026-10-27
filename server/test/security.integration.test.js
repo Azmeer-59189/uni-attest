@@ -503,3 +503,40 @@ test('a pending issuance cannot be retried against a different contract', async 
   expect(retry.status).toBe(409);
   expect(retry.body.error).toContain('different blockchain or contract');
 });
+
+test('password reset emails a single-use link, answers alike for unknown emails, and ends existing sessions', async () => {
+  const notify = require('../src/services/notify');
+  notify._setTransport(null);
+  expect((await request(app).post('/api/auth/forgot-password').send({ email: student.email })).status).toBe(503);
+  const sendMail = jest.fn(async () => {});
+  notify._setTransport({ sendMail });
+  try {
+    const unknown = await request(app).post('/api/auth/forgot-password').send({ email: 'nobody@example.com' });
+    const known = await request(app).post('/api/auth/forgot-password').send({ email: 'Student@Example.com' });
+    expect([unknown.status, known.status]).toEqual([200, 200]);
+    expect(known.body).toEqual(unknown.body);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    expect(sendMail.mock.calls[0][0].to).toBe(student.email);
+    const resetToken = /#token=([a-f0-9]{64})/.exec(sendMail.mock.calls[0][0].text)[1];
+    const stored = await User.findById(student._id).select('+passwordResetHash');
+    expect(stored.passwordResetHash).not.toBe(resetToken);
+
+    const oldSession = token(student);
+    expect((await request(app).post('/api/auth/reset-password').send({ token: resetToken, newPassword: 'short' })).status).toBe(400);
+    const reset = await request(app).post('/api/auth/reset-password').send({ token: resetToken, newPassword: 'A-brand-new-password-456' });
+    expect(reset.status).toBe(200);
+    expect((await request(app).post('/api/auth/reset-password').send({ token: resetToken, newPassword: 'Another-new-password-789' })).status).toBe(400);
+    expect((await request(app).get('/api/auth/me').set('Authorization', `Bearer ${oldSession}`)).status).toBe(401);
+    expect((await request(app).post('/api/auth/login').send({ email: student.email, password })).status).toBe(401);
+    expect((await request(app).post('/api/auth/login').send({ email: student.email, password: 'A-brand-new-password-456' })).status).toBe(200);
+
+    await request(app).post('/api/auth/forgot-password').send({ email: other.email });
+    await new Promise(resolve => setImmediate(resolve));
+    const expiredToken = /#token=([a-f0-9]{64})/.exec(sendMail.mock.calls[1][0].text)[1];
+    await User.updateOne({ _id: other._id }, { $set: { passwordResetExpires: new Date(Date.now() - 1000) } });
+    expect((await request(app).post('/api/auth/reset-password').send({ token: expiredToken, newPassword: 'A-brand-new-password-456' })).status).toBe(400);
+  } finally {
+    notify._setTransport(null);
+  }
+});

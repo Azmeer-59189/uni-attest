@@ -56,6 +56,14 @@ const templates = {
       { label: 'Verification hash', code: degree.hash }
     ],
     action: ['Open the verification page', `${clientUrl()}/verify/${degree.hash}`]
+  }),
+  passwordReset: ({ link }) => ({
+    subject: 'Reset your UniAttest password',
+    paragraphs: [
+      'We received a request to reset the password for your account. The link below works once and expires in 30 minutes.',
+      'If you didn’t ask for this, you can ignore this email; your password stays the same.'
+    ],
+    action: ['Choose a new password', link]
   })
 };
 
@@ -89,6 +97,18 @@ const send = async (event, context) => {
   const message = exports.compose(event, context, recipient);
   await mail.sendMail({ from: { name: process.env.UNIVERSITY_NAME || 'UniAttest', address: process.env.MAIL_FROM || process.env.SMTP_USER }, ...message });
   logger.info('Notification sent: %s for application %s', event, String(context.application._id));
+};
+
+exports.enabled = () => Boolean(transporter());
+
+// Password reset links go to any role. Fire and forget, so response timing doesn't reveal which emails exist.
+exports.sendPasswordReset = (user, token) => {
+  const mail = transporter();
+  if (!mail) return;
+  const message = exports.compose('passwordReset', { link: `${clientUrl()}/reset-password#token=${token}` }, user);
+  mail.sendMail({ from: { name: process.env.UNIVERSITY_NAME || 'UniAttest', address: process.env.MAIL_FROM || process.env.SMTP_USER }, ...message })
+    .then(() => logger.info('Password reset email sent to user %s', String(user._id)))
+    .catch(error => logger.warn('Password reset email failed for user %s: %s', String(user._id), error.message));
 };
 
 // Fire and forget. Callers don't await this; errors are logged, never thrown.

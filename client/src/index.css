@@ -105,6 +105,10 @@
 
 .confirmation-dialog { margin: auto; width: min(32rem, calc(100% - 2rem)); max-height: calc(100dvh - 3rem); overflow-y: auto; border-radius: .5rem; padding: 1.5rem; border: 1px solid #dcd7cc; background: #fff; box-shadow: 0 24px 64px #1d202533; }
 .confirmation-dialog::backdrop { background: #1d2025a6; }
+.preview-dialog { margin: auto; width: min(64rem, calc(100% - 2rem)); height: calc(100dvh - 3rem); padding: 0; display: flex; flex-direction: column; border-radius: .5rem; border: 1px solid #dcd7cc; background: #fff; box-shadow: 0 24px 64px #1d202533; }
+.preview-dialog:not([open]) { display: none; }
+.preview-dialog::backdrop { background: #1d2025a6; }
+.preview-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: auto; background: #f4f2ed; }
 
 /* Staff console: a queue on the left, the open record on the right. */
 .console { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); border-top: 1px solid #dcd7cc; min-height: calc(100dvh - 57px); }

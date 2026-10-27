@@ -43,6 +43,9 @@ const userSchema = new mongoose.Schema({
   },
   tokenVersion: { type: Number, default: 0 },
   refreshTokenHash: { type: String, select: false },
+  // SHA-256 of a single-use emailed reset token; the token itself is never stored.
+  passwordResetHash: { type: String, select: false, index: { sparse: true } },
+  passwordResetExpires: { type: Date, select: false },
 
   photoUrl: {
   type: String,
