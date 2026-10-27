@@ -1,29 +1,37 @@
 import { Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
-import Navbar from './components/Navbar'
+import AppLayout from './components/AppLayout'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import { ForgotPassword, ResetPassword } from './pages/PasswordReset'
 import StudentDashboard from './pages/student/Dashboard'
 import NewApplication from './pages/student/NewApplication'
 import AdminDashboard from './pages/admin/Dashboard'
 import AdminManagement from './pages/admin/AdminManagement'
 import VerifyDegree from './pages/VerifyDegree'
 import ProtectedRoute from './components/ProtectedRoute'
+import Account from './pages/Account'
+import ApplicationDetail from './pages/ApplicationDetail'
+import Challan from './pages/student/Challan'
+import { STAFF_ROLES } from './utils/workflow'
 
 function App() {
   return (
     <AuthProvider>
-      <div className="min-h-screen bg-off">
-        <Navbar />
-        <main className="container mx-auto px-4 py-8">
+      <AppLayout>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/account" element={<ProtectedRoute allowedRoles={['student', ...STAFF_ROLES]}><Account /></ProtectedRoute>} />
             <Route path="/verify/:hash?" element={<VerifyDegree />} />
 
             {/* Student routes */}
+            <Route path="/student/applications/:id" element={<ProtectedRoute allowedRoles={['student']}><ApplicationDetail /></ProtectedRoute>} />
+            <Route path="/student/applications/:id/challan" element={<ProtectedRoute allowedRoles={['student']}><Challan /></ProtectedRoute>} />
             <Route path="/student/dashboard" element={
               <ProtectedRoute allowedRoles={['student']}>
                 <StudentDashboard />
@@ -36,8 +44,9 @@ function App() {
             } />
 
             {/* Admin routes */}
+            <Route path="/admin/applications/:id" element={<ProtectedRoute allowedRoles={STAFF_ROLES}><ApplicationDetail /></ProtectedRoute>} />
             <Route path="/admin/dashboard" element={
-              <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+              <ProtectedRoute allowedRoles={STAFF_ROLES}>
                 <AdminDashboard />
               </ProtectedRoute>
             } />
@@ -49,8 +58,7 @@ function App() {
               </ProtectedRoute>
             } />
           </Routes>
-        </main>
-      </div>
+      </AppLayout>
     </AuthProvider>
   )
 }

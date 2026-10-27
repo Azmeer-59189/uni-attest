@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['student', 'admin', 'super_admin'],
+    enum: ['student', ...require('../services/workflow').STAFF_ROLES],
     default: 'student'
   },
   fullName: {
@@ -29,6 +29,9 @@ const userSchema = new mongoose.Schema({
     sparse: true,
     trim: true
   },
+  fatherName: { type: String, trim: true },
+  // Pakistani CNIC as 00000-0000000-0. Prefills each new attestation request.
+  cnic: { type: String, trim: true, unique: true, sparse: true },
   department: {
     type: String,
     trim: true
@@ -41,6 +44,11 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  tokenVersion: { type: Number, default: 0 },
+  refreshTokenHash: { type: String, select: false },
+  // SHA-256 of a single-use emailed reset token; the token itself is never stored.
+  passwordResetHash: { type: String, select: false, index: { sparse: true } },
+  passwordResetExpires: { type: Date, select: false },
 
   photoUrl: {
   type: String,
@@ -54,10 +62,7 @@ const userSchema = new mongoose.Schema({
 // ✅ FIX: Mongoose v8 async pre-save hooks don't use next()
 userSchema.pre('save', async function() {
   if (!this.isModified('passwordHash')) return;
-  // Only hash if it's not already hashed
-  if (!this.passwordHash.startsWith('$2')) {
-    this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
-  }
+  this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
 });
 
 userSchema.methods.comparePassword = async function(candidatePassword) {

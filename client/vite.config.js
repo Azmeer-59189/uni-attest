@@ -6,8 +6,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      '/uploads/certificates': { target: process.env.API_PROXY_TARGET || 'http://localhost:5000', changeOrigin: true },
       '/api': {
-        target: 'http://localhost:5000',
+        target: process.env.API_PROXY_TARGET || 'http://localhost:5000',
         changeOrigin: true
       }
     }

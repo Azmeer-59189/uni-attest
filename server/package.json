@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
-    "test": "jest --coverage"
+    "test": "jest --coverage",
+    "test:flow": "node test/browser-flow.js",
+    "test:local": "node test/local-stack.js"
   },
   "dependencies": {
     "axios": "^1.17.0",
@@ -21,8 +23,9 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.0.3",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.5.0",
     "nodemailer": "^6.9.7",
+    "pdf-poppler": "^0.2.3",
     "pdfkit": "^0.18.0",
     "puppeteer": "^21.6.0",
     "qrcode": "^1.5.4",
@@ -33,6 +36,7 @@
   },
   "devDependencies": {
     "jest": "^29.7.0",
+    "mongodb-memory-server": "^11.3.0",
     "nodemon": "^3.0.2",
     "supertest": "^6.3.3"
   },

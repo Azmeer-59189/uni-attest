@@ -1,18 +1,18 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-navy"></div>
-      </div>
+      <p role="status" className="py-24 text-center text-ink-faint">Loading…</p>
     )
   }
 
-  if (!user) return <Navigate to="/login" replace />
+  // Remember the requested page so sign-in can return to it.
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
   if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/" replace />
 
   return children

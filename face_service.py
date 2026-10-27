@@ -1,5 +1,10 @@
 import os
+import sys
 os.environ['DEEPFACE_HOME'] = os.path.expanduser('~')
+# DeepFace logs emoji; a Windows console's default encoding would crash on them, e.g. while downloading model weights.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, 'reconfigure'):
+        stream.reconfigure(encoding='utf-8', errors='replace')
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -7,18 +12,13 @@ import os
 import tempfile
 import cv2
 import numpy as np
-from ultralytics import YOLO
 from deepface import DeepFace
 import base64
 import re
 
 app = Flask(__name__)
-CORS(app)
-
-# Load YOLOv8 face detection model (downloads automatically on first run)
-print("Loading YOLO model...")
-model = YOLO("yolov8n.pt")  # nano model — fast and lightweight
-print("YOLO model loaded.")
+CORS(app, origins=os.environ.get('CLIENT_URL', 'http://localhost:5173'))
+app.config['MAX_CONTENT_LENGTH'] = 22 * 1024 * 1024
 
 def save_base64_image(b64_string, suffix=".jpg"):
     """Save a base64 image to a temp file and return the path."""
@@ -38,46 +38,35 @@ def save_uploaded_file(file, suffix=".jpg"):
     tmp.close()
     return tmp.name
 
-def detect_face_yolo(image_path):
-    """
-    Use YOLO to detect faces in an image.
-    Returns True if at least one face is detected, False otherwise.
-    Also returns the cropped face image path for better DeepFace matching.
-    """
-    results = model(image_path, classes=[0], verbose=False)  # class 0 = person
-    
-    # Read image
-    img = cv2.imread(image_path)
-    if img is None:
+# RetinaFace finds and aligns small, low-contrast faces such as ID card portraits far more reliably than OpenCV.
+DETECTOR = "retinaface"
+
+def crop_largest_face(image_path, faces):
+    """Write the largest detected face, with a margin, to a temp file so later steps ignore smaller faces."""
+    image = cv2.imread(image_path)
+    area = max((face["facial_area"] for face in faces), key=lambda box: box["w"] * box["h"])
+    margin_x, margin_y = int(area["w"] * 0.4), int(area["h"] * 0.4)
+    top, left = max(area["y"] - margin_y, 0), max(area["x"] - margin_x, 0)
+    crop = image[top:area["y"] + area["h"] + margin_y, left:area["x"] + area["w"] + margin_x]
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+    tmp.close()
+    cv2.imwrite(tmp.name, crop)
+    return tmp.name
+
+def detect_face(image_path, use_largest=False):
+    """Require one actual face. With use_largest, an image may contain more faces (an ID card's
+    secondary "ghost" portrait) and only the largest is returned for comparison."""
+    try:
+        faces = DeepFace.extract_faces(img_path=image_path, detector_backend=DETECTOR, enforce_detection=True)
+        if use_largest and len(faces) > 1:
+            print(f"Face check: found {len(faces)} faces on the ID photo, comparing the largest")
+            return True, crop_largest_face(image_path, faces)
+        if len(faces) != 1:
+            print(f"Face check: found {len(faces)} faces, expected exactly one")
+        return len(faces) == 1, image_path
+    except (ValueError, RuntimeError) as e:
+        print(f"Face check: no face detected ({e})")
         return False, None
-    
-    # Try to find face using YOLO person detection + face crop
-    detections = results[0].boxes
-    if detections is None or len(detections) == 0:
-        # No person detected — still try DeepFace directly
-        return True, image_path
-    
-    # Get the largest bounding box (most prominent person)
-    best_box = None
-    best_area = 0
-    for box in detections.xyxy:
-        x1, y1, x2, y2 = map(int, box)
-        area = (x2 - x1) * (y2 - y1)
-        if area > best_area:
-            best_area = area
-            best_box = (x1, y1, x2, y2)
-    
-    if best_box:
-        x1, y1, x2, y2 = best_box
-        # Crop to upper portion (face area) of the detected person
-        face_height = int((y2 - y1) * 0.4)
-        face_crop = img[y1:y1 + face_height, x1:x2]
-        if face_crop.size > 0:
-            crop_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
-            cv2.imwrite(crop_path, face_crop)
-            return True, crop_path
-    
-    return True, image_path
 
 def verify_faces(id_photo_path, selfie_path):
     try:
@@ -99,16 +88,17 @@ def verify_faces(id_photo_path, selfie_path):
             img1_path=id_photo_path,
             img2_path=selfie_path,
             model_name="Facenet",
-            detector_backend="opencv",
-            enforce_detection=False,
+            detector_backend=DETECTOR,
+            enforce_detection=True,
             distance_metric="cosine"
         )
 
         distance = result["distance"]
         threshold = result["threshold"]
+        print(f"Face comparison: distance {distance:.4f}, match limit {threshold:.4f}")
 
         # Use a slightly relaxed threshold for ID cards
-        adjusted_threshold = threshold * 1.2
+        adjusted_threshold = threshold
         match = distance <= adjusted_threshold
 
         return {
@@ -156,20 +146,20 @@ def verify_face():
             id_photo_path = save_base64_image(data["id_photo"])
             selfie_path = save_base64_image(data["selfie"])
 
-        # Step 1 — YOLO face detection on both images
-        id_face_found, cropped_id_path = detect_face_yolo(id_photo_path)
-        selfie_face_found, cropped_selfie_path = detect_face_yolo(selfie_path)
+        # Step 1 — face detection on both images
+        id_face_found, cropped_id_path = detect_face(id_photo_path, use_largest=True)
+        selfie_face_found, cropped_selfie_path = detect_face(selfie_path)
 
         if not id_face_found:
             return jsonify({
                 "match": False,
-                "error": "No face detected in ID photo. Please upload a clear photo of your ID."
+                "error": "Upload an ID photo where your face is clearly visible."
             }), 400
 
         if not selfie_face_found:
             return jsonify({
                 "match": False,
-                "error": "No face detected in selfie. Please take a clear selfie."
+                "error": "Take a selfie with exactly one clearly visible face."
             }), 400
 
         # Step 2 — DeepFace verification
@@ -177,6 +167,9 @@ def verify_face():
         use_selfie = cropped_selfie_path if cropped_selfie_path else selfie_path
 
         verification = verify_faces(use_id, use_selfie)
+
+        if verification.get("error"):
+            return jsonify({"success": False, "match": False, "error": verification["error"]}), 400
 
         return jsonify({
             "success": True,
@@ -202,4 +195,4 @@ def verify_face():
 
 if __name__ == "__main__":
     print("Starting face verification service on port 5001...")
-    app.run(host="0.0.0.0", port=5001, debug=False)
+    app.run(host=os.environ.get("FACE_SERVICE_HOST", "127.0.0.1"), port=5001, debug=False)

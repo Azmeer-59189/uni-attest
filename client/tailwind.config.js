@@ -6,17 +6,25 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        serif: ['Newsreader', 'Iowan Old Style', 'Georgia', 'serif'],
+        mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'Consolas', 'monospace'],
+      },
       colors: {
         navy: {
-          DEFAULT: '#0D1B2A',
-          mid: '#162234',
-          light: '#1E3048',
+          DEFAULT: '#1f3a5f',
+          mid: '#172c48',
+          light: '#2f5585',
         },
         gold: {
-          DEFAULT: '#C9A84C',
-          light: '#E2C87A',
+          DEFAULT: '#c7dcf5',
+          light: '#e3edfa',
         },
-        off: '#F2F0EC',
+        ink: { DEFAULT: '#1d2025', soft: '#4a4f57', faint: '#6a6f77' },
+        paper: { DEFAULT: '#f7f5f0', deep: '#efece4' },
+        rule: { DEFAULT: '#dcd7cc', strong: '#bdb6a8' },
+        off: '#f7f5f0',
       }
     },
   },

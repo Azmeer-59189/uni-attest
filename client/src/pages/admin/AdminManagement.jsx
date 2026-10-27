@@ -1,53 +1,64 @@
-import { useState, useEffect } from 'react'
+import { PageHeader } from '../../components/UI'
+import ConfirmationDialog from '../../components/ConfirmationDialog'
+import { apiError } from '../../utils/apiError'
+import { formatDate } from '../../components/ApplicationRecord'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import {
-  Users, Plus, Shield, ShieldOff,
-  Eye, EyeOff, X, CheckCircle, AlertCircle
-} from 'lucide-react'
+import { Plus, Eye, EyeOff, RefreshCw } from 'lucide-react'
+import { staffRoleLabels } from '../../utils/workflow'
+
+const roleDuties = {
+  scrutiny: 'Checks documents and fee payments; raises objections.',
+  examination: 'Verifies particulars against result records.',
+  registrar: 'Gives final approval and issues certificates.',
+  admin: 'Can act at every stage. For small offices.'
+}
+
+const emptyForm = { fullName: '', email: '', password: '', department: '', role: 'scrutiny' }
+const inputClass = 'w-full h-11 px-3 border border-rule-strong rounded-md focus:border-ink text-sm font-normal'
 
 const AdminManagement = () => {
-  const { api, user } = useAuth()   // ✅ use api from AuthContext — sends token automatically
+  const { api, user } = useAuth()
   const [admins, setAdmins] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [toast, setToast] = useState(null)
+  // Outcome messages stay until the next action, so nobody has to read them within a time limit.
+  const [message, setMessage] = useState(null)
   const [confirmToggle, setConfirmToggle] = useState(null)
   const [showPassword, setShowPassword] = useState(false)
   const [actionLoading, setActionLoading] = useState(null)
-  const [form, setForm] = useState({ fullName: '', email: '', password: '', department: '' })
+  const [form, setForm] = useState(emptyForm)
   const [formError, setFormError] = useState('')
 
-  useEffect(() => { fetchAdmins() }, [])
-
-  const fetchAdmins = async () => {
+  const fetchAdmins = useCallback(async () => {
+    setLoadError('')
     try {
       const res = await api.get('/admin/admins')
       setAdmins(res.data.admins)
     } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to load admins.', 'error')
+      setLoadError(apiError(err, 'Could not load staff accounts.'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [api])
+  useEffect(() => { fetchAdmins() }, [fetchAdmins])
 
-  const showToast = (msg, type = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
+  const closeForm = () => { setShowForm(false); setFormError(''); setShowPassword(false) }
 
   const handleCreateAdmin = async (e) => {
     e.preventDefault()
     setFormError('')
-    if (form.password.length < 8) { setFormError('Password must be at least 8 characters.'); return }
+    if (form.password.length < 12) { setFormError('Password must be at least 12 characters.'); return }
     setActionLoading('create')
     try {
       await api.post('/admin/admins', form)
       await fetchAdmins()
-      showToast(`Admin account created for ${form.fullName}.`)
-      setShowForm(false)
-      setForm({ fullName: '', email: '', password: '', department: '' })
+      setMessage({ type: 'success', text: `${staffRoleLabels[form.role]} account created for ${form.fullName}.` })
+      closeForm()
+      setForm(emptyForm)
     } catch (err) {
-      setFormError(err.response?.data?.error || 'Failed to create admin.')
+      setFormError(apiError(err, 'Could not create the account.'))
     } finally {
       setActionLoading(null)
     }
@@ -59,223 +70,86 @@ const AdminManagement = () => {
     try {
       await api.patch(`/admin/admins/${confirmToggle._id}/toggle`)
       await fetchAdmins()
-      showToast(confirmToggle.isActive ? 'Admin deactivated.' : 'Admin reactivated.')
-      setConfirmToggle(null)
+      setMessage({ type: 'success', text: `${confirmToggle.fullName} ${confirmToggle.isActive ? 'was deactivated' : 'was reactivated'}.` })
     } catch (err) {
-      showToast(err.response?.data?.error || 'Action failed.', 'error')
+      setMessage({ type: 'error', text: apiError(err, 'Action failed.') })
     } finally {
+      setConfirmToggle(null)
       setActionLoading(null)
     }
   }
 
   const update = (field) => (e) => setForm({ ...form, [field]: e.target.value })
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-navy"></div>
-    </div>
-  )
+  if (loading) return <p role="status" className="py-24 text-center text-ink-faint">Loading staff accounts…</p>
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl space-y-10">
+      <PageHeader eyebrow="Staff access" title="Your attestation office." description="Each role works one stage: scrutiny officers check documents and fees, examination officers verify records, and the registrar approves and issues. Deactivated staff lose access immediately; their decisions stay on record." actions={<button onClick={() => { setMessage(null); setShowForm(true) }} className="button-primary"><Plus className="h-4 w-4" />Add staff</button>} />
 
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 ${
-          toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-navy text-white border-l-4 border-gold'
-        }`}>
-          {toast.type === 'error' ? <AlertCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
-          {toast.msg}
-        </div>
-      )}
+      <div aria-live="polite">{message && <p role={message.type === 'error' ? 'alert' : 'status'} className={`flex flex-wrap items-center justify-between gap-3 border-l-2 p-3 text-sm ${message.type === 'error' ? 'border-red-700 bg-red-50 text-red-800' : 'border-emerald-700 bg-emerald-50 text-emerald-900'}`}>{message.text}<button onClick={() => setMessage(null)} className="text-xs underline">Dismiss</button></p>}</div>
 
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-serif font-medium text-navy">Admin Management</h1>
-          <p className="text-gray-400 text-sm mt-1">Only super admins can create or deactivate admin accounts.</p>
-        </div>
-        <button onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-navy text-white px-5 py-2.5 rounded-lg hover:bg-navy-light transition-colors text-sm font-medium">
-          <Plus className="h-4 w-4" /> Add Admin
-        </button>
-      </div>
-
-      {/* Info box */}
-      <div className="bg-gold/5 border border-gold/20 rounded-xl p-4 flex gap-3">
-        <Shield className="h-5 w-5 text-gold flex-shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-medium text-navy mb-1">Role-based access control</p>
-          <p className="text-xs text-gray-500 leading-relaxed">
-            Student registration is public but always creates <strong>student accounts only</strong>.
-            Admin accounts can only be created here by a super admin.
-            Deactivated admins lose access immediately but their history is preserved.
-          </p>
-        </div>
-      </div>
-
-      {/* Admins list */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider">
-            Admin accounts ({admins.length})
-          </h2>
-        </div>
-
-        {admins.length === 0 ? (
-          <div className="p-12 text-center">
-            <Users className="h-10 w-10 text-gray-200 mx-auto mb-3" />
-            <p className="text-gray-400 text-sm">No admin accounts yet.</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-50">
-            {admins.map(admin => (
-              <div key={admin._id} className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/50 transition-colors">
-
-                {/* Avatar */}
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0 ${
-                  admin.role === 'super_admin' ? 'bg-gold/20 text-yellow-700'
-                  : admin.isActive ? 'bg-navy/10 text-navy'
-                  : 'bg-gray-100 text-gray-400'
-                }`}>
-                  {admin.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-medium text-navy">{admin.fullName}</p>
-                    {admin.role === 'super_admin' && (
-                      <span className="text-xs bg-gold/10 text-yellow-700 border border-gold/20 px-2 py-0.5 rounded-full">Super Admin</span>
-                    )}
-                    {!admin.isActive && (
-                      <span className="text-xs bg-red-50 text-red-500 border border-red-100 px-2 py-0.5 rounded-full">Deactivated</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5">{admin.email}</p>
-                  {admin.department && <p className="text-xs text-gray-300 mt-0.5">{admin.department}</p>}
-                </div>
-
-                <p className="text-xs text-gray-300 flex-shrink-0 hidden md:block">
-                  Added {new Date(admin.createdAt).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })}
-                </p>
-
-                {/* Actions */}
+      <section aria-labelledby="admins-title">
+        <h2 id="admins-title" className="rule-heading"><span>Staff accounts</span>{!loadError && <span className="normal-case tracking-normal text-xs font-normal text-ink-faint">{admins.length} total</span>}</h2>
+        {loadError ? <div role="alert" className="py-10"><p className="text-red-800">{loadError}</p><button onClick={() => { setLoading(true); fetchAdmins() }} className="button-secondary mt-4"><RefreshCw className="h-4 w-4" />Retry</button></div>
+        : admins.length === 0 ? <p className="py-10 text-ink-soft">No staff accounts yet. Use “Add staff” to create the first one.</p>
+        : <ul className="divide-y divide-rule">
+          {admins.map(admin => (
+            <li key={admin._id} className="grid gap-x-6 gap-y-2 py-5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+              <div className="min-w-0">
+                <p className="font-medium text-ink break-words">{admin.fullName}{admin._id === user?._id && <span className="ml-2 text-xs font-normal text-ink-faint">(you)</span>}</p>
+                <p className="text-sm text-ink-soft break-words">{admin.email}{admin.department && <span className="text-ink-faint"> · {admin.department}</span>}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-soft">
+                <span className="status-pill"><span aria-hidden="true" className={`status-dot ${!admin.isActive ? 'bg-stone-400' : admin.role === 'super_admin' ? 'bg-navy' : 'bg-emerald-600'}`} />{!admin.isActive ? 'Deactivated' : staffRoleLabels[admin.role] || 'Staff'}</span>
+                <span className="font-mono text-[11px] text-ink-faint">Added {formatDate(admin.createdAt)}</span>
+              </div>
+              <div className="sm:justify-self-end">
                 {admin._id !== user?._id && admin.role !== 'super_admin' && (
                   <button
-                    onClick={() => setConfirmToggle(admin)}
+                    onClick={() => { setMessage(null); setConfirmToggle(admin) }}
                     disabled={actionLoading === admin._id}
-                    className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40 ${
-                      admin.isActive
-                        ? 'text-red-500 border-red-100 hover:bg-red-50'
-                        : 'text-green-600 border-green-100 hover:bg-green-50'
-                    }`}>
-                    {admin.isActive ? <><ShieldOff className="h-3.5 w-3.5" /> Deactivate</> : <><Shield className="h-3.5 w-3.5" /> Reactivate</>}
+                    aria-label={`${admin.isActive ? 'Deactivate' : 'Reactivate'} ${admin.fullName}`}
+                    className={`button-secondary !min-h-10 !py-1.5 !text-xs ${admin.isActive ? '!text-red-800 hover:!border-red-800' : ''}`}>
+                    {admin.isActive ? 'Deactivate' : 'Reactivate'}
                   </button>
                 )}
-                {admin._id === user?._id && (
-                  <span className="text-xs text-gray-300 px-3">You</span>
-                )}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+            </li>
+          ))}
+        </ul>}
+      </section>
 
-      {/* Create admin modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h3 className="font-serif font-medium text-navy text-lg">Create admin account</h3>
-                <p className="text-gray-400 text-xs mt-0.5">The new admin will log in with these credentials.</p>
-              </div>
-              <button onClick={() => { setShowForm(false); setFormError('') }} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {formError && (
-              <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg mb-4 border border-red-100 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 flex-shrink-0" />{formError}
-              </div>
-            )}
-
-            <form onSubmit={handleCreateAdmin} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">Full name <span className="text-gold">*</span></label>
-                <input type="text" required placeholder="e.g. Dr. Imran Khan"
-                  className="w-full h-11 px-4 border border-gray-200 rounded-lg focus:outline-none focus:border-navy text-sm"
-                  value={form.fullName} onChange={update('fullName')} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">University email <span className="text-gold">*</span></label>
-                <input type="email" required placeholder="e.g. i.khan@university.edu.pk"
-                  className="w-full h-11 px-4 border border-gray-200 rounded-lg focus:outline-none focus:border-navy text-sm"
-                  value={form.email} onChange={update('email')} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">Department</label>
-                <input type="text" placeholder="e.g. Registrar's Office"
-                  className="w-full h-11 px-4 border border-gray-200 rounded-lg focus:outline-none focus:border-navy text-sm"
-                  value={form.department} onChange={update('department')} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 uppercase tracking-wider mb-1.5">Temporary password <span className="text-gold">*</span></label>
-                <div className="relative">
-                  <input type={showPassword ? 'text' : 'password'} required placeholder="Min. 8 characters"
-                    className="w-full h-11 px-4 pr-11 border border-gray-200 rounded-lg focus:outline-none focus:border-navy text-sm"
-                    value={form.password} onChange={update('password')} />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Share this with the admin — they should change it after first login.</p>
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => { setShowForm(false); setFormError('') }}
-                  className="flex-1 h-11 border border-gray-200 rounded-lg text-sm text-gray-500 hover:border-navy transition-colors">Cancel</button>
-                <button type="submit" disabled={actionLoading === 'create'}
-                  className="flex-1 h-11 bg-navy text-white rounded-lg text-sm font-medium hover:bg-navy-light transition-colors disabled:opacity-50">
-                  {actionLoading === 'create' ? 'Creating…' : 'Create Admin'}
+        <ConfirmationDialog title="Add a staff member" busy={actionLoading === 'create'} onClose={closeForm} formId="create-admin-form" confirmLabel="Create account">
+          <p>They’ll sign in with this email and the temporary password, and should change it after their first sign-in.</p>
+          {formError && <p role="alert" className="mt-4 border-l-2 border-red-700 bg-red-50 p-3 text-red-800">{formError}</p>}
+          <form id="create-admin-form" onSubmit={handleCreateAdmin} className="mt-5 space-y-4">
+            <fieldset><legend className="field-label">Role</legend><div className="mt-1.5 space-y-1.5">{Object.keys(roleDuties).map(role => <label key={role} className={`flex cursor-pointer items-start gap-3 rounded-md border p-2.5 ${form.role === role ? 'border-ink bg-paper' : 'border-rule'}`}><input type="radio" name="role" value={role} checked={form.role === role} onChange={update('role')} className="mt-1 accent-navy" /><span><span className="block text-sm font-medium text-ink">{staffRoleLabels[role]}</span><span className="block text-xs font-normal text-ink-faint">{roleDuties[role]}</span></span></label>)}</div></fieldset>
+            <label className="field-label">Full name<input type="text" required autoComplete="off" placeholder="e.g. Dr. Imran Khan" className={`${inputClass} mt-1.5`} value={form.fullName} onChange={update('fullName')} /></label>
+            <label className="field-label">University email<input type="email" required autoComplete="off" placeholder="e.g. i.khan@university.edu.pk" className={`${inputClass} mt-1.5`} value={form.email} onChange={update('email')} /></label>
+            <label className="field-label">Department <span className="font-normal text-ink-faint">(optional)</span><input type="text" placeholder="e.g. Examination Branch" className={`${inputClass} mt-1.5`} value={form.department} onChange={update('department')} /></label>
+            <div>
+              <label htmlFor="admin-password" className="field-label">Temporary password</label>
+              <div className="relative mt-1.5">
+                <input id="admin-password" type={showPassword ? 'text' : 'password'} required minLength={12} maxLength={72} autoComplete="new-password" aria-describedby="admin-password-hint"
+                  className={`${inputClass} pr-12`} value={form.password} onChange={update('password')} />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 flex h-9 w-9 items-center justify-center text-ink-faint hover:text-ink">
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
+              <p id="admin-password-hint" className="mt-1.5 text-xs text-ink-faint">At least 12 characters. Share it with them privately.</p>
+            </div>
+          </form>
+        </ConfirmationDialog>
       )}
 
-      {/* Confirm toggle modal */}
       {confirmToggle && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${confirmToggle.isActive ? 'bg-red-50' : 'bg-green-50'}`}>
-              {confirmToggle.isActive ? <ShieldOff className="h-6 w-6 text-red-500" /> : <Shield className="h-6 w-6 text-green-600" />}
-            </div>
-            <h3 className="font-serif font-medium text-navy text-center text-lg mb-2">
-              {confirmToggle.isActive ? 'Deactivate account?' : 'Reactivate account?'}
-            </h3>
-            <p className="text-gray-400 text-sm text-center mb-6">
-              {confirmToggle.isActive
-                ? `${confirmToggle.fullName} will immediately lose access to the admin portal.`
-                : `${confirmToggle.fullName} will regain access to the admin portal.`}
-            </p>
-            <div className="flex gap-3">
-              <button onClick={() => setConfirmToggle(null)}
-                className="flex-1 h-10 border border-gray-200 rounded-lg text-sm text-gray-500 hover:border-navy transition-colors">Cancel</button>
-              <button onClick={handleToggle} disabled={actionLoading === confirmToggle._id}
-                className={`flex-1 h-10 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50 ${
-                  confirmToggle.isActive ? 'bg-red-500 hover:bg-red-600' : 'bg-green-600 hover:bg-green-700'
-                }`}>
-                {actionLoading === confirmToggle._id ? 'Processing…' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmationDialog title={confirmToggle.isActive ? 'Deactivate this account?' : 'Reactivate this account?'} busy={actionLoading === confirmToggle._id} danger={confirmToggle.isActive} onClose={() => setConfirmToggle(null)} onConfirm={handleToggle} confirmLabel={confirmToggle.isActive ? 'Deactivate' : 'Reactivate'}>
+          <p className="break-words">{confirmToggle.isActive ? `${confirmToggle.fullName} will lose access to the staff portal immediately. Their past decisions stay on record.` : `${confirmToggle.fullName} will be able to sign in to the staff portal again.`}</p>
+        </ConfirmationDialog>
       )}
-
     </div>
   )
 }

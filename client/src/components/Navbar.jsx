@@ -1,72 +1,63 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Menu, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { GraduationCap, LogOut, User, LayoutDashboard, FileCheck } from 'lucide-react'
+import { staffRoleLabels } from '../utils/workflow'
 
-const Navbar = () => {
-  const { user, logout } = useAuth()
-  const navigate = useNavigate()
-
-  const handleLogout = () => {
-    logout()
-    navigate('/')
-  }
-
-  return (
-    <nav className="bg-navy border-b border-navy-mid">
-      <div className="container mx-auto px-6">
-        <div className="flex justify-between items-center h-16">
-          <Link to="/" className="flex items-center space-x-3">
-            <div className="w-9 h-9 border border-gold rounded-lg flex items-center justify-center">
-              <span className="text-gold font-serif text-lg font-semibold">U</span>
-            </div>
-            <div>
-              <span className="text-white font-medium text-sm">UniAttest</span>
-              <span className="block text-xs text-white/40 tracking-wider">DEGREE ATTESTATION</span>
-            </div>
-          </Link>
-
-          <div className="flex items-center space-x-6">
-            <Link to="/verify" className="flex items-center space-x-2 text-white/60 hover:text-gold transition-colors text-sm">
-              <FileCheck className="h-4 w-4" />
-              <span>Verify</span>
-            </Link>
-
-            {user ? (
-              <>
-                {user.role === 'student' && (
-                  <Link to="/student/dashboard" className="flex items-center space-x-2 text-white/60 hover:text-gold transition-colors text-sm">
-                    <LayoutDashboard className="h-4 w-4" />
-                    <span>Dashboard</span>
-                  </Link>
-                )}
-                {user.role === 'admin' && (
-                  <Link to="/admin/dashboard" className="flex items-center space-x-2 text-white/60 hover:text-gold transition-colors text-sm">
-                    <LayoutDashboard className="h-4 w-4" />
-                    <span>Admin</span>
-                  </Link>
-                )}
-                <div className="flex items-center space-x-2 text-white/60">
-                  <User className="h-4 w-4" />
-                  <span className="text-sm">{user.fullName}</span>
-                </div>
-                <button onClick={handleLogout} className="flex items-center space-x-2 text-white/60 hover:text-red-400 transition-colors text-sm">
-                  <LogOut className="h-4 w-4" />
-                  <span>Logout</span>
-                </button>
-              </>
-            ) : (
-              <div className="flex items-center space-x-4">
-                <Link to="/login" className="text-white/60 hover:text-white text-sm">Sign in</Link>
-                <Link to="/register" className="bg-gold text-navy px-4 py-2 rounded-lg text-sm font-medium hover:bg-gold-light transition-colors">
-                  Register
-                </Link>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </nav>
-  )
+export function navigationFor(user) {
+  if (!user) return [{ to: '/verify', label: 'Verify a degree' }]
+  if (user.role === 'student') return [
+    { to: '/student/dashboard', label: 'Overview', match: /^\/student\/(dashboard|applications\/)/ },
+    { to: '/student/apply', label: 'Request' },
+    { to: '/verify', label: 'Verify' },
+    { to: '/account', label: 'Account' }
+  ]
+  return [
+    { to: '/admin/dashboard', label: 'Queue', match: /^\/admin\/(dashboard|applications\/)/ },
+    ...(user.role === 'super_admin' ? [{ to: '/admin/manage-admins', label: 'Staff' }] : []),
+    { to: '/verify', label: 'Verify' },
+    { to: '/account', label: 'Account' }
+  ]
 }
 
-export default Navbar
+export default function Navbar() {
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const [open, setOpen] = useState(false)
+  useEffect(() => { setOpen(false) }, [pathname])
+  useEffect(() => {
+    if (!open) return
+    const key = event => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', key)
+    return () => document.removeEventListener('keydown', key)
+  }, [open])
+  const signOut = async () => { try { await logout() } catch (_) {} finally { navigate('/') } }
+  const links = navigationFor(user)
+  const current = link => link.match ? link.match.test(pathname) : pathname === link.to || pathname.startsWith(`${link.to}/`)
+  const staff = user && user.role !== 'student'
+  const initials = user?.fullName.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()
+
+  return <header className="topbar">
+    <div className={`mx-auto flex h-14 items-center justify-between gap-6 px-4 sm:px-8 ${staff ? '' : 'max-w-6xl'}`}>
+      <Link to="/" className="flex items-baseline gap-3 shrink-0"><span className="font-serif text-[1.375rem] leading-none text-ink">UniAttest</span><span className="hidden sm:inline text-[11px] uppercase tracking-[0.16em] text-ink-faint">{staff ? staffRoleLabels[user.role] : user ? 'Student record' : 'Degree attestation'}</span></Link>
+      <nav aria-label="Main navigation" className="hidden md:flex items-center gap-7 h-full">
+        {links.map(link => <Link key={link.to} to={link.to} className="topbar-link h-full" aria-current={current(link) ? 'page' : undefined}>{link.label}</Link>)}
+      </nav>
+      <div className="hidden md:flex items-center gap-5 shrink-0">
+        {user ? <>
+          <Link to="/account" className="flex items-center gap-2.5 text-[13px] text-ink-soft hover:text-ink"><span aria-hidden="true" className="flex h-7 w-7 items-center justify-center rounded-full border border-rule-strong text-[10px] font-semibold text-ink">{initials}</span><span className="max-w-40 truncate">{user.fullName}</span></Link>
+          <button onClick={signOut} className="topbar-link">Sign out</button>
+        </> : <>
+          <Link to="/login" className="topbar-link" aria-current={pathname === '/login' ? 'page' : undefined}>Sign in</Link>
+          <Link to="/register" className="button-primary !min-h-9 !px-4 !py-1.5 !text-[13px]">Apply for attestation</Link>
+        </>}
+      </div>
+      <button className="md:hidden -mr-2 flex h-11 w-11 items-center justify-center text-ink" aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open} aria-controls="mobile-menu" onClick={() => setOpen(value => !value)}>{open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}</button>
+    </div>
+    {open && <nav id="mobile-menu" aria-label="Main navigation" className="topbar-menu md:hidden border-t border-rule px-4 pb-4">
+      {links.map(link => <Link key={link.to} to={link.to} aria-current={current(link) ? 'page' : undefined}>{link.label}</Link>)}
+      {user ? <button onClick={signOut}>Sign out <span className="ml-auto text-xs text-ink-faint">{user.fullName}</span></button> : <><Link to="/login">Sign in</Link><Link to="/register">Apply for attestation</Link></>}
+    </nav>}
+  </header>
+}

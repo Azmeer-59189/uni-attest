@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "dev:local": "node scripts/start-local.js"
+  },
   "dependencies": {
     "pdf-poppler": "^0.2.3"
   }
